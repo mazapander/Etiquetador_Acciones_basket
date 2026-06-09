@@ -1,0 +1,10 @@
+repomix-output.*
+digest.txt
+.env
+.env.*
+node_modules/
+dist/
+build/
+.venv/
+venv/
+__pycache__/

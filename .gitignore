@@ -1,0 +1,16 @@
+.env
+.env.*
+!.env.example
+node_modules/
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+backend/etiquetador.db
+backend/storage/videos/*
+!backend/storage/videos/.gitkeep
+*.mp4
+backend/.tmp
