@@ -29,7 +29,6 @@ type Props = {
   editingPairKey: string | null;
   tagDraft: RegularTagDraft | null;
   pairDraft: PairDraft | null;
-  onBack: () => void;
   onOpenCreateTag: () => void;
   onJumpChange: (value: number) => void;
   onTimeUpdate: (value: number) => void;
@@ -46,6 +45,8 @@ type Props = {
   onPairDraftChange: (draft: PairDraft | null) => void;
   onUpdateEvent: (eventId: number, values: Partial<TagEvent>) => void;
   onDeleteEvent: (eventId: number) => void;
+  onReorderTags: (tagIds: number[]) => void;
+  onFinishProject: () => void;
 };
 
 export function WorkspaceView({
@@ -65,7 +66,6 @@ export function WorkspaceView({
   editingPairKey,
   tagDraft,
   pairDraft,
-  onBack,
   onOpenCreateTag,
   onJumpChange,
   onTimeUpdate,
@@ -82,12 +82,17 @@ export function WorkspaceView({
   onPairDraftChange,
   onUpdateEvent,
   onDeleteEvent,
+  onReorderTags,
+  onFinishProject,
 }: Props) {
   return (
     <section className="workspace-view">
-      <div className="workspace-header">
-        <button className="ghost-button" type="button" onClick={onBack}>
-          Volver a proyectos
+      <div className="workspace-toolbar">
+        <button className="secondary-button" type="button" onClick={onOpenCreateTag}>
+          Nueva tag
+        </button>
+        <button className="secondary-button" type="button" onClick={onFinishProject}>
+          Finalizar proyecto
         </button>
       </div>
       <section className="workspace">
@@ -125,6 +130,7 @@ export function WorkspaceView({
           onTagDraftChange={onTagDraftChange}
           onPairDraftChange={onPairDraftChange}
           onOpenCreateTag={onOpenCreateTag}
+          onReorderTags={onReorderTags}
         />
       </section>
       <EventsList events={events} onSeek={onSeek} onUpdateEvent={onUpdateEvent} onDeleteEvent={onDeleteEvent} />

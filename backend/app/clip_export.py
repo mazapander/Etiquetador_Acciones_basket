@@ -143,35 +143,116 @@ def export_segment(source_path: Path, output_path: Path, ffmpeg_path: Path, segm
         str(output_path),
     ]
     subprocess.run(command, check=True, capture_output=True, text=True)
+import subprocess
+from pathlib import Path
 
 
-def concatenate_segments(segment_paths: list[Path], output_path: Path, ffmpeg_path: Path, working_dir: Path) -> None:
-    concat_file = working_dir / "concat.txt"
-    concat_file.write_text("\n".join(f"file '{path.name}'" for path in segment_paths), encoding="utf-8")
-    command = [
+def _escape_concat_path(path: Path) -> str:
+    """
+    Escapa rutas para el concat demuxer de FFmpeg.
+    Formato esperado:
+    file '/absolute/path/video.mp4'
+    """
+    resolved = path.resolve().as_posix()
+    escaped = resolved.replace("'", r"'\''")
+    return f"file '{escaped}'"
+
+
+def concatenate_segments(
+    segment_paths: list[Path],
+    output_path: Path,
+    ffmpeg_path: Path,
+    working_dir: Path
+) -> None:
+    if not segment_paths:
+        raise ValueError("No segment paths provided")
+
+    for path in segment_paths:
+        if not path.exists():
+            raise FileNotFoundError(f"Segment file not found: {path}")
+        if path.stat().st_size == 0:
+            raise ValueError(f"Segment file is empty: {path}")
+
+    working_dir.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    working_dir = working_dir.resolve()
+    output_path = output_path.resolve()
+    ffmpeg_path = ffmpeg_path.resolve()
+
+    concat_file = (working_dir / "concat.txt").resolve()
+
+    concat_content = "\n".join(
+        _escape_concat_path(path)
+        for path in segment_paths
+    )
+
+    concat_file.write_text(concat_content + "\n", encoding="utf-8")
+
+    # 1) Intento rápido: concat sin recodificar
+    command_copy = [
         str(ffmpeg_path),
         "-y",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-i",
-        str(concat_file),
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "18",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
+        "-f", "concat",
+        "-safe", "0",
+        "-fflags", "+genpts",
+        "-i", concat_file.as_posix(),
+        "-c", "copy",
+        "-movflags", "+faststart",
         str(output_path),
     ]
-    subprocess.run(command, check=True, capture_output=True, text=True, cwd=str(working_dir))
 
+    result = subprocess.run(
+        command_copy,
+        capture_output=True,
+        text=True,
+        cwd=str(working_dir)
+    )
 
+    if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
+        return
+
+    # 2) Fallback fiable: recodificar todo
+    command_reencode = [
+        str(ffmpeg_path),
+        "-y",
+        "-f", "concat",
+        "-safe", "0",
+        "-fflags", "+genpts",
+        "-i", str(concat_file),
+
+        "-map", "0:v:0",
+        "-map", "0:a?",
+
+        "-c:v", "libx264",
+        "-preset", "veryfast",
+        "-crf", "18",
+        "-pix_fmt", "yuv420p",
+
+        "-c:a", "aac",
+        "-b:a", "192k",
+
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+    result = subprocess.run(
+        command_reencode,
+        capture_output=True,
+        text=True,
+        cwd=str(working_dir)
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            "FFmpeg concat failed.\n\n"
+            f"Concat file:\n{concat_file}\n\n"
+            f"Concat content:\n{concat_content}\n\n"
+            f"Command copy stderr:\n{result.stderr}"
+        )
+
+    if not output_path.exists() or output_path.stat().st_size == 0:
+        raise RuntimeError("FFmpeg finished but output file was not created or is empty")
 def write_manifest(export_dir: Path, payload: dict) -> Path:
     manifest_path = export_dir / "manifest.json"
     manifest_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")

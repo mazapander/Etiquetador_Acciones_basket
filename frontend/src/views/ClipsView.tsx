@@ -15,8 +15,6 @@ type Props = {
   result: ClipExportResult | null;
   isPlanning: boolean;
   isExporting: boolean;
-  onBack: () => void;
-  onGoToLabel: () => void;
   onTagChange: (tagId: number) => void;
   onModeChange: (mode: ClipExportMode) => void;
   onPreRollChange: (value: number) => void;
@@ -47,8 +45,6 @@ export function ClipsView({
   result,
   isPlanning,
   isExporting,
-  onBack,
-  onGoToLabel,
   onTagChange,
   onModeChange,
   onPreRollChange,
@@ -60,19 +56,9 @@ export function ClipsView({
 }: Props) {
   return (
     <section className="clips-view">
-      <div className="workspace-header">
-        <div className="clips-header-actions">
-          <button className="ghost-button" type="button" onClick={onBack}>
-            Volver a proyectos
-          </button>
-          <button className="ghost-button" type="button" onClick={onGoToLabel}>
-            Ir a etiquetado
-          </button>
-        </div>
-        <div className="clips-video-meta">
-          <strong>{video.display_name}</strong>
-          <span>{video.original_filename}</span>
-        </div>
+      <div className="clips-video-meta">
+        <strong>{video.display_name}</strong>
+        <span>{video.original_filename}</span>
       </div>
 
       <section className="clips-layout">

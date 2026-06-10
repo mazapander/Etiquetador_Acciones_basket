@@ -478,6 +478,17 @@ def update_tag(tag_id: int, payload: TagDefinitionUpdate, db: Session = Depends(
     return tag
 
 
+@app.post("/api/tags/reorder")
+def reorder_tags(payload: list[int], db: Session = Depends(get_db)):
+    for index, tag_id in enumerate(payload):
+        tag = db.get(TagDefinition, tag_id)
+        if tag is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Tag {tag_id} not found")
+        tag.sort_order = index
+    db.commit()
+    return {"status": "ok"}
+
+
 @app.delete("/api/tags/{tag_id}", response_model=TagDefinitionRead)
 def deactivate_tag(tag_id: int, db: Session = Depends(get_db)):
     tag = db.get(TagDefinition, tag_id)

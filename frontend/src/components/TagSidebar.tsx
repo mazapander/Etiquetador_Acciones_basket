@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AntagonisticPair, PairDraft, RegularTagDraft, TagDefinition, TagEvent } from "../types";
 import { suggestAvailableColor, suggestSecondColor } from "../lib/video";
 
@@ -21,6 +22,7 @@ type Props = {
   onTagDraftChange: (draft: RegularTagDraft | null) => void;
   onPairDraftChange: (draft: PairDraft | null) => void;
   onOpenCreateTag: () => void;
+  onReorderTags: (tagIds: number[]) => void;
 };
 
 export function TagSidebar({
@@ -43,7 +45,53 @@ export function TagSidebar({
   onTagDraftChange,
   onPairDraftChange,
   onOpenCreateTag,
+  onReorderTags,
 }: Props) {
+  const [draggedId, setDraggedId] = useState<number | null>(null);
+  const [dragOverId, setDragOverId] = useState<number | null>(null);
+
+  function handleDragStart(tagId: number) {
+    setDraggedId(tagId);
+  }
+
+  function handleDragOver(event: React.DragEvent, tagId: number) {
+    event.preventDefault();
+    if (draggedId !== null && draggedId !== tagId) {
+      setDragOverId(tagId);
+    }
+  }
+
+  function handleDragLeave() {
+    setDragOverId(null);
+  }
+
+  function handleDrop(event: React.DragEvent, targetTagId: number) {
+    event.preventDefault();
+    if (draggedId === null || draggedId === targetTagId) {
+      setDraggedId(null);
+      setDragOverId(null);
+      return;
+    }
+    const regularTagIds = regularTags.map((t) => t.id);
+    const fromIndex = regularTagIds.indexOf(draggedId);
+    const toIndex = regularTagIds.indexOf(targetTagId);
+    if (fromIndex === -1 || toIndex === -1) {
+      setDraggedId(null);
+      setDragOverId(null);
+      return;
+    }
+    const newOrder = [...regularTagIds];
+    newOrder.splice(fromIndex, 1);
+    newOrder.splice(toIndex, 0, draggedId);
+    onReorderTags(newOrder);
+    setDraggedId(null);
+    setDragOverId(null);
+  }
+
+  function handleDragEnd() {
+    setDraggedId(null);
+    setDragOverId(null);
+  }
   return (
     <aside className="tag-panel">
       <div className="section-heading">
@@ -57,8 +105,19 @@ export function TagSidebar({
           const openEvent = activeRanges[tag.id];
           const isBehindStart = openEvent ? currentTime < openEvent.start_seconds : false;
           const isEditing = editingTagId === tag.id && tagDraft !== null;
+          const isDragging = draggedId === tag.id;
+          const isDragOver = dragOverId === tag.id;
           return (
-            <div className="tag-control" key={tag.id}>
+            <div
+              className={`tag-control${isDragging ? " dragging" : ""}${isDragOver ? " drag-over" : ""}`}
+              key={tag.id}
+              draggable={!isEditing}
+              onDragStart={() => handleDragStart(tag.id)}
+              onDragOver={(e) => handleDragOver(e, tag.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, tag.id)}
+              onDragEnd={handleDragEnd}
+            >
               {isEditing ? (
                 <div className="tag-editor">
                   <input value={tagDraft.name} onChange={(event) => onTagDraftChange({ ...tagDraft, name: event.target.value })} />

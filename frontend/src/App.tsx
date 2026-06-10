@@ -650,11 +650,6 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
     <main className="app-shell">
       <header className="topbar">
         <div className="topbar-left">
-          {(route === "/label" || route === "/clips") && (
-            <button className="ghost-button back-button" type="button" onClick={handleBackToGallery}>
-              ← Volver
-            </button>
-          )}
           <div className="title-block">
             <p className="eyebrow">Etiquetador de partido</p>
             {route === "/label" && video && isEditingTitle ? (
@@ -674,29 +669,36 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
             )}
           </div>
         </div>
-        <div className="header-actions">
-          {route === "/label" && video && (
-            <button
-              className="secondary-button"
-              type="button"
-              onClick={async () => {
-                if (window.confirm(`¿Marcar "${video.display_name}" como finalizado?`)) {
-                  await api<Video>(`/api/videos/${video.id}`, {
-                    method: "PATCH",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ status: "completed" }),
-                  });
-                  handleBackToGallery();
-                }
-              }}
-            >
-              Acabar proyecto
-            </button>
+        <nav className="navbar">
+          {video && (
+            <>
+              <button
+                className={`nav-button ${route === "/gallery" ? "active" : ""}`}
+                type="button"
+                onClick={() => { navigateTo("/gallery"); setRoute("/gallery"); }}
+              >
+                Proyectos
+              </button>
+              <button
+                className={`nav-button ${route === "/label" ? "active" : ""}`}
+                type="button"
+                onClick={() => { navigateTo("/label"); setRoute("/label"); }}
+              >
+                Etiquetar
+              </button>
+              <button
+                className={`nav-button ${route === "/clips" ? "active" : ""}`}
+                type="button"
+                onClick={() => { navigateTo("/clips"); setRoute("/clips"); }}
+              >
+                Recortes
+              </button>
+            </>
           )}
           <button className="theme-toggle" type="button" onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}>
-            {theme === "light" ? "Dark mode" : "Light mode"}
+            {theme === "light" ? "Dark" : "Light"}
           </button>
-        </div>
+        </nav>
       </header>
 
       {error && <div className="error-banner">{error}</div>}
@@ -747,7 +749,6 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
             editingPairKey={editingPairKey}
             tagDraft={tagDraft}
             pairDraft={pairDraft}
-            onBack={handleBackToGallery}
             onOpenCreateTag={() => setIsCreateModalOpen(true)}
             onJumpChange={setJumpSeconds}
             onTimeUpdate={setCurrentTime}
@@ -774,6 +775,18 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
             }}
             onUpdateEvent={(eventId, values) => void updateEvent(eventId, values)}
             onDeleteEvent={(eventId) => void deleteEvent(eventId)}
+            onReorderTags={async (tagIds) => {
+              try {
+                await api<void>("/api/tags/reorder", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(tagIds),
+                });
+                await refresh(selectedVideoId, route);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : "No se pudo reordenar las tags");
+              }
+            }}
           />
         )
       ) : (
@@ -792,12 +805,6 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
             result={clipResult}
             isPlanning={isPlanningClips}
             isExporting={isExportingClips}
-            onBack={handleBackToGallery}
-            onGoToLabel={async () => {
-              navigateTo("/label");
-              setRoute("/label");
-              await refresh(selectedVideoId, "/label");
-            }}
             onTagChange={(tagId) => {
               setClipTagId(tagId);
               const tag = tags.find((item) => item.id === tagId);
