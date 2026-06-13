@@ -3,6 +3,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { CreateTagModal } from "./components/CreateTagModal";
 import { api, API_BASE } from "./lib/api";
 import { buildOpenRanges, readStoredJumpSeconds, readStoredTheme, suggestAvailableColor, suggestSecondColor } from "./lib/video";
+import { useVideoPrefetch } from "./lib/useVideoPrefetch";
 import { AntagonisticPair, ClipExportMode, ClipExportPlan, ClipExportResult, PairDraft, RegularTagDraft, TagDefinition, TagEvent, TagMode, ThemeMode, Video, VideoLibraryItem } from "./types";
 import { ClipsView } from "./views/ClipsView";
 import { DownloadView } from "./views/download/DownloadView";
@@ -68,7 +69,7 @@ export default function App() {
   const [clipPreRoll, setClipPreRoll] = useState(0);
   const [clipPostRoll, setClipPostRoll] = useState(0);
   const [clipOutputLabel, setClipOutputLabel] = useState("");
-const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
+  const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
   const [clipResult, setClipResult] = useState<ClipExportResult | null>(null);
   const [isPlanningClips, setIsPlanningClips] = useState(false);
   const [isExportingClips, setIsExportingClips] = useState(false);
@@ -108,6 +109,8 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
       count: events.filter((event) => event.tag_definition_id === tag.id).length,
     }))
     .filter((tag) => tag.count > 0);
+
+  useVideoPrefetch(video ? video.id : null);
 
   async function openVideo(nextVideo: Video | null) {
     setVideo(nextVideo);

@@ -299,6 +299,20 @@ def list_videos(db: Session = Depends(get_db)):
     return [serialize_video_item(db, video) for video in videos]
 
 
+@app.get("/api/videos/prioritized", response_model=list[VideoLibraryItemRead])
+def list_videos_prioritized(
+    limit: int = Query(default=5, ge=1, le=20),
+    db: Session = Depends(get_db),
+):
+    sync_library_videos(db)
+    videos = db.scalars(select(Video).order_by(Video.updated_at.desc(), Video.created_at.desc())).all()
+    items = [serialize_video_item(db, video) for video in videos]
+    untagged = [item for item in items if item.event_count == 0]
+    tagged = [item for item in items if item.event_count > 0]
+    tagged.sort(key=lambda x: x.labeled_percent)
+    return untagged + tagged[:limit]
+
+
 @app.post("/api/videos/sync", status_code=status.HTTP_204_NO_CONTENT)
 def sync_videos(db: Session = Depends(get_db)):
     sync_library_videos(db)
@@ -370,7 +384,14 @@ def stream_video(video_id: int, db: Session = Depends(get_db)):
     path = resolve_video_path(video)
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found")
-    return FileResponse(path)
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        headers={
+            "Accept-Ranges": "bytes",
+            "Cache-Control": "public, max-age=86400",
+        },
+    )
 
 
 @app.get("/api/tags", response_model=list[TagDefinitionRead])
