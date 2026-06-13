@@ -24,6 +24,13 @@ class TagSource(str, Enum):
     system = "system"
 
 
+class DownloadStatus(str, Enum):
+    pending = "pending"
+    downloading = "downloading"
+    completed = "completed"
+    failed = "failed"
+
+
 class Video(Base):
     __tablename__ = "videos"
 
@@ -78,3 +85,22 @@ class TagEvent(Base):
 
     video: Mapped[Video] = relationship(back_populates="events")
     tag: Mapped[TagDefinition] = relationship(back_populates="events")
+
+
+class DownloadHistory(Base):
+    __tablename__ = "download_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    url: Mapped[str] = mapped_column(String(1000), nullable=False)
+    title: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    channel: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    quality: Mapped[str] = mapped_column(String(20), nullable=False)
+    download_format: Mapped[str] = mapped_column(String(20), nullable=False)
+    output_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    status: Mapped[DownloadStatus] = mapped_column(SAEnum(DownloadStatus), default=DownloadStatus.pending, nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    file_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

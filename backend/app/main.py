@@ -18,9 +18,16 @@ from app.clip_export import (
     slugify,
     write_manifest,
 )
+from app.video_downloader import (
+    DownloadRequest,
+    DownloadProgress,
+    VideoInfo,
+    download_video,
+    fetch_video_info,
+)
 from app.config import get_settings
 from app.database import Base, engine, get_db
-from app.models import TagDefinition, TagEvent, TagMode, Video, VideoStatus
+from app.models import DownloadHistory, DownloadStatus, TagDefinition, TagEvent, TagMode, Video, VideoStatus
 from app.schemas import (
     AntagonisticPairCreate,
     AntagonisticPairRead,
@@ -675,3 +682,96 @@ def delete_video(video_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     db.delete(video)
     db.commit()
+
+
+download_tasks: dict[int, DownloadProgress] = {}
+
+
+@app.get("/api/download/info", response_model=VideoInfo)
+def get_video_info(url: str):
+    try:
+        return fetch_video_info(url)
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+
+
+@app.post("/api/download/start")
+def start_download(request: DownloadRequest, db: Session = Depends(get_db)):
+    task_id = len(download_tasks) + 1
+    download_tasks[task_id] = DownloadProgress(status="downloading", percent=0, stage="Starting...")
+
+    history_entry = DownloadHistory(
+        url=request.url,
+        title=request.video_title,
+        channel=request.video_channel,
+        quality=request.quality,
+        download_format=request.download_format,
+        output_name=request.output_name,
+        status=DownloadStatus.downloading,
+    )
+    db.add(history_entry)
+    db.commit()
+    db.refresh(history_entry)
+
+    def progress_callback(progress: DownloadProgress):
+        download_tasks[task_id] = progress
+
+    def run_download():
+        try:
+            output_dir = download_video(request, progress_callback)
+            download_tasks[task_id] = DownloadProgress(
+                status="completed",
+                percent=100,
+                stage="Download completed",
+                output_path=output_dir,
+            )
+            db_entry = db.get(DownloadHistory, history_entry.id)
+            if db_entry:
+                db_entry.status = DownloadStatus.completed
+                db_entry.completed_at = datetime.utcnow()
+                db.commit()
+        except Exception as exc:
+            download_tasks[task_id] = DownloadProgress(status="failed", error=str(exc))
+            db_entry = db.get(DownloadHistory, history_entry.id)
+            if db_entry:
+                db_entry.status = DownloadStatus.failed
+                db_entry.error_message = str(exc)
+                db_entry.completed_at = datetime.utcnow()
+                db.commit()
+
+    import threading
+    thread = threading.Thread(target=run_download)
+    thread.start()
+
+    return {"task_id": task_id, "status": "started", "download_id": history_entry.id}
+
+
+@app.get("/api/download/progress/{task_id}", response_model=DownloadProgress)
+def get_download_progress(task_id: int):
+    if task_id not in download_tasks:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return download_tasks[task_id]
+
+
+@app.get("/api/download/history", response_model=list[dict])
+def get_download_history(db: Session = Depends(get_db)):
+    history = db.scalars(select(DownloadHistory).order_by(DownloadHistory.created_at.desc())).all()
+    return [
+        {
+            "id": h.id,
+            "url": h.url,
+            "title": h.title,
+            "channel": h.channel,
+            "quality": h.quality,
+            "download_format": h.download_format,
+            "output_name": h.output_name,
+            "status": h.status.value,
+            "error_message": h.error_message,
+            "file_path": h.file_path,
+            "file_size_bytes": h.file_size_bytes,
+            "duration_seconds": h.duration_seconds,
+            "created_at": h.created_at.isoformat() if h.created_at else None,
+            "completed_at": h.completed_at.isoformat() if h.completed_at else None,
+        }
+        for h in history
+    ]

@@ -21,7 +21,6 @@ type Props = {
   onDeactivatePair: (pair: AntagonisticPair) => void;
   onTagDraftChange: (draft: RegularTagDraft | null) => void;
   onPairDraftChange: (draft: PairDraft | null) => void;
-  onOpenCreateTag: () => void;
   onReorderTags: (tagIds: number[]) => void;
 };
 
@@ -44,7 +43,6 @@ export function TagSidebar({
   onDeactivatePair,
   onTagDraftChange,
   onPairDraftChange,
-  onOpenCreateTag,
   onReorderTags,
 }: Props) {
   const [draggedId, setDraggedId] = useState<number | null>(null);
@@ -96,9 +94,6 @@ export function TagSidebar({
     <aside className="tag-panel">
       <div className="section-heading">
         <h2>Tags</h2>
-        <button className="secondary-button" type="button" onClick={onOpenCreateTag}>
-          Nueva tag
-        </button>
       </div>
       <div className="tag-list">
         {regularTags.map((tag) => {

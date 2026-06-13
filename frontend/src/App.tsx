@@ -5,10 +5,11 @@ import { api, API_BASE } from "./lib/api";
 import { buildOpenRanges, readStoredJumpSeconds, readStoredTheme, suggestAvailableColor, suggestSecondColor } from "./lib/video";
 import { AntagonisticPair, ClipExportMode, ClipExportPlan, ClipExportResult, PairDraft, RegularTagDraft, TagDefinition, TagEvent, TagMode, ThemeMode, Video, VideoLibraryItem } from "./types";
 import { ClipsView } from "./views/ClipsView";
+import { DownloadView } from "./views/download/DownloadView";
 import { ProjectsView } from "./views/ProjectsView";
 import { WorkspaceView } from "./views/WorkspaceView";
 
-type RoutePath = "/gallery" | "/label" | "/clips";
+type RoutePath = "/gallery" | "/label" | "/clips" | "/download";
 
 function normalizeRoute(pathname: string): RoutePath {
   if (pathname === "/label") {
@@ -16,6 +17,9 @@ function normalizeRoute(pathname: string): RoutePath {
   }
   if (pathname === "/clips") {
     return "/clips";
+  }
+  if (pathname === "/download") {
+    return "/download";
   }
   if (pathname === "/galery" || pathname === "/gallery" || pathname === "/") {
     return "/gallery";
@@ -540,7 +544,7 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
     }
   }
 
-  async function handleSelectVideo(item: VideoLibraryItem) {
+  async function handleOpenLabel(item: VideoLibraryItem) {
     const updated = await api<Video>(`/api/videos/${item.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -644,7 +648,9 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
       ? displayName || video.display_name
       : route === "/clips" && video
         ? `Recortes - ${video.display_name}`
-        : "Galeria de proyectos";
+        : route === "/download"
+          ? "Descargar video"
+          : "Galeria de proyectos";
 
   return (
     <main className="app-shell">
@@ -670,15 +676,15 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
           </div>
         </div>
         <nav className="navbar">
+          <button
+            className={`nav-button ${route === "/gallery" ? "active" : ""}`}
+            type="button"
+            onClick={() => { navigateTo("/gallery"); setRoute("/gallery"); }}
+          >
+            Proyectos
+          </button>
           {video && (
             <>
-              <button
-                className={`nav-button ${route === "/gallery" ? "active" : ""}`}
-                type="button"
-                onClick={() => { navigateTo("/gallery"); setRoute("/gallery"); }}
-              >
-                Proyectos
-              </button>
               <button
                 className={`nav-button ${route === "/label" ? "active" : ""}`}
                 type="button"
@@ -695,6 +701,13 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
               </button>
             </>
           )}
+          <button
+            className={`nav-button ${route === "/download" ? "active" : ""}`}
+            type="button"
+            onClick={() => { navigateTo("/download"); setRoute("/download"); }}
+          >
+            Descargar
+          </button>
           <button className="theme-toggle" type="button" onClick={() => setTheme((current) => (current === "light" ? "dark" : "light"))}>
             {theme === "light" ? "Dark" : "Light"}
           </button>
@@ -709,7 +722,7 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
           isUploading={isUploading}
           isSyncing={isSyncing}
           fileInputRef={fileInputRef}
-          onSelectVideo={(item) => void handleSelectVideo(item)}
+          onOpenLabel={(item) => void handleOpenLabel(item)}
           onOpenClips={(item) => void handleOpenClips(item)}
           onOpenUpload={() => fileInputRef.current?.click()}
           onFileChange={(file) => void handleInitialFileChange(file)}
@@ -730,6 +743,8 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
             }
           }}
         />
+      ) : route === "/download" ? (
+        <DownloadView />
       ) : route === "/label" ? (
         video && (
           <WorkspaceView
@@ -785,6 +800,17 @@ const [clipPlan, setClipPlan] = useState<ClipExportPlan | null>(null);
                 await refresh(selectedVideoId, route);
               } catch (err) {
                 setError(err instanceof Error ? err.message : "No se pudo reordenar las tags");
+              }
+            }}
+            onFinishProject={async () => {
+              if (!video) return;
+              if (window.confirm(`¿Marcar "${video.display_name}" como finalizado?`)) {
+                await api<Video>(`/api/videos/${video.id}`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ status: "completed" }),
+                });
+                handleBackToGallery();
               }
             }}
           />

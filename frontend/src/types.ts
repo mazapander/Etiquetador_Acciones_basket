@@ -99,3 +99,18 @@ export type ClipExportResult = ClipExportPlan & {
   manifest_path: string;
   output_files: string[];
 };
+
+export type VideoQuality = "best" | "1080p" | "720p" | "480p" | "360p" | "audio_only";
+export type DownloadFormat = "mp4" | "mkv" | "webm" | "mp3" | "wav";
+
+export type VideoInfo = {
+  url: string;
+  title: string | null;
+  thumbnail: string | null;
+  duration: number | null;
+  description: string | null;
+  webpage_url: string | null;
+  playlist_title: string | null;
+  channel: string | null;
+  formats: Array<Record<string, unknown>>;
+};

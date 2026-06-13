@@ -129,7 +129,6 @@ export function WorkspaceView({
           onDeactivatePair={onDeactivatePair}
           onTagDraftChange={onTagDraftChange}
           onPairDraftChange={onPairDraftChange}
-          onOpenCreateTag={onOpenCreateTag}
           onReorderTags={onReorderTags}
         />
       </section>

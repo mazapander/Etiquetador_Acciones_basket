@@ -8,7 +8,7 @@ type Props = {
   isUploading: boolean;
   isSyncing: boolean;
   fileInputRef: RefObject<HTMLInputElement | null>;
-  onSelectVideo: (video: VideoLibraryItem) => void;
+  onOpenLabel: (video: VideoLibraryItem) => void;
   onOpenClips: (video: VideoLibraryItem) => void;
   onOpenUpload: () => void;
   onFileChange: (file: File | undefined) => void;
@@ -16,7 +16,7 @@ type Props = {
   onSync: () => void;
 };
 
-export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onSelectVideo, onOpenClips, onOpenUpload, onFileChange, onDeleteVideo, onSync }: Props) {
+export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onOpenLabel, onOpenClips, onOpenUpload, onFileChange, onDeleteVideo, onSync }: Props) {
   function formatStatus(status: VideoLibraryItem["status"]) {
     if (status === "active") {
       return "Activo";
@@ -54,7 +54,7 @@ export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onS
       <div className="project-grid projects-grid-large">
         {videos.map((item) => (
           <div key={item.id} className="project-card-wrapper">
-            <button type="button" className="project-card project-card-large" onClick={() => onSelectVideo(item)}>
+            <div className="project-card project-card-large">
               <div className="project-card-header">
                 <strong>{item.display_name}</strong>
                 <span className={item.status === "active" ? "project-status active-status" : "project-status"}>{formatStatus(item.status)}</span>
@@ -85,10 +85,12 @@ export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onS
                 <span>{item.event_count} marcas</span>
                 <span>{item.file_exists ? "Disponible" : "Sin archivo"}</span>
               </div>
-            </button>
+            </div>
             <div className="project-card-actions">
-              <span className="project-link">Abrir etiquetado</span>
-              <button type="button" className="ghost-button inline-ghost-button" onClick={() => onOpenClips(item)}>
+              <button type="button" className="primary-button project-action-button" onClick={() => onOpenLabel(item)}>
+                Etiquetar
+              </button>
+              <button type="button" className="secondary-button project-action-button" onClick={() => onOpenClips(item)}>
                 Recortes
               </button>
             </div>
