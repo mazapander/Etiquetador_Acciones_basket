@@ -8,3 +8,5 @@ pytest==8.3.4
 httpx==0.28.1
 yt-dlp>=2024.11.9
 imageio-ffmpeg>=0.6.0
+psycopg[binary]==3.2.3
+PyJWT[crypto]==2.10.1
