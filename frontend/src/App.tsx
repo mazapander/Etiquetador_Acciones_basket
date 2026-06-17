@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateTagModal } from "./components/CreateTagModal";
+import { VideoInfoButton } from "./components/VideoInfoButton";
 import { api, API_BASE } from "./lib/api";
 import { buildOpenRanges, readStoredJumpSeconds, readStoredTheme, suggestAvailableColor, suggestSecondColor } from "./lib/video";
 import { useVideoPrefetch } from "./lib/useVideoPrefetch";
@@ -47,6 +48,7 @@ export default function App() {
   const [duration, setDuration] = useState(0);
   const [jumpSeconds, setJumpSeconds] = useState(() => readStoredJumpSeconds());
   const [theme, setTheme] = useState<ThemeMode>(() => readStoredTheme());
+  const [videoError, setVideoError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [newTagName, setNewTagName] = useState("");
@@ -119,6 +121,7 @@ export default function App() {
     setIsEditingTitle(false);
     setDuration(0);
     setCurrentTime(0);
+    setVideoError(null);
     if (!nextVideo) {
       setEvents([]);
       setActiveRanges({});
@@ -129,6 +132,41 @@ export default function App() {
     setActiveRanges(buildOpenRanges(currentEvents));
     setClipPlan(null);
     setClipResult(null);
+  }
+
+  function handleVideoLoadStart() {
+    setVideoError(null);
+  }
+
+  function handleVideoReady() {
+    setVideoError(null);
+  }
+
+  function handleVideoError() {
+    const element = videoRef.current;
+    const mediaError = element?.error;
+    if (!mediaError) {
+      setVideoError("El navegador no pudo cargar el recurso.");
+      return;
+    }
+
+    switch (mediaError.code) {
+      case MediaError.MEDIA_ERR_ABORTED:
+        setVideoError("La carga del video se interrumpio.");
+        break;
+      case MediaError.MEDIA_ERR_NETWORK:
+        setVideoError("Hubo un problema de red al cargar el video.");
+        break;
+      case MediaError.MEDIA_ERR_DECODE:
+        setVideoError("El archivo no se puede decodificar con este navegador.");
+        break;
+      case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
+        setVideoError("Este video o su formato no son compatibles con el navegador.");
+        break;
+      default:
+        setVideoError("El navegador no pudo reproducir este video.");
+        break;
+    }
   }
 
   async function refresh(preferredVideoId?: number | null, preferredRoute?: RoutePath) {
@@ -675,6 +713,7 @@ export default function App() {
               <h1 className={route === "/label" && video ? "editable-title" : ""} onClick={() => route === "/label" && video && setIsEditingTitle(true)}>
                 {pageTitle}
               </h1>
+              {route === "/label" && video && <VideoInfoButton videoId={video.id} />}
             )}
           </div>
         </div>
@@ -718,6 +757,7 @@ export default function App() {
       </header>
 
       {error && <div className="error-banner">{error}</div>}
+      {videoError && route === "/label" && <div className="error-banner">{videoError}</div>}
 
       {route === "/gallery" ? (
         <ProjectsView
@@ -754,6 +794,7 @@ export default function App() {
             video={video}
             streamUrl={streamUrl}
             videoRef={videoRef}
+            videoError={videoError}
             currentTime={currentTime}
             duration={duration}
             jumpSeconds={jumpSeconds}
@@ -772,6 +813,9 @@ export default function App() {
             onTimeUpdate={setCurrentTime}
             onDurationChange={setDuration}
             onSeek={seekTo}
+            onVideoLoadStart={handleVideoLoadStart}
+            onVideoReady={handleVideoReady}
+            onVideoError={handleVideoError}
             onRegisterTag={(tag) => void registerTag(tag)}
             onBeginTagEdit={beginTagEdit}
             onBeginPairEdit={beginPairEdit}

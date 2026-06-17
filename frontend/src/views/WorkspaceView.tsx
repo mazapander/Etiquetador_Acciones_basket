@@ -16,6 +16,7 @@ type Props = {
   video: Video;
   streamUrl: string;
   videoRef: RefObject<HTMLVideoElement | null>;
+  videoError: string | null;
   currentTime: number;
   duration: number;
   jumpSeconds: number;
@@ -34,6 +35,9 @@ type Props = {
   onTimeUpdate: (value: number) => void;
   onDurationChange: (value: number) => void;
   onSeek: (seconds: number) => void;
+  onVideoLoadStart: () => void;
+  onVideoReady: () => void;
+  onVideoError: () => void;
   onRegisterTag: (tag: TagDefinition) => void;
   onBeginTagEdit: (tag: TagDefinition) => void;
   onBeginPairEdit: (pair: AntagonisticPair) => void;
@@ -53,6 +57,7 @@ export function WorkspaceView({
   video,
   streamUrl,
   videoRef,
+  videoError,
   currentTime,
   duration,
   jumpSeconds,
@@ -71,6 +76,9 @@ export function WorkspaceView({
   onTimeUpdate,
   onDurationChange,
   onSeek,
+  onVideoLoadStart,
+  onVideoReady,
+  onVideoError,
   onRegisterTag,
   onBeginTagEdit,
   onBeginPairEdit,
@@ -100,6 +108,7 @@ export function WorkspaceView({
           video={video}
           streamUrl={streamUrl}
           videoRef={videoRef}
+          videoError={videoError}
           currentTime={currentTime}
           duration={duration}
           jumpSeconds={jumpSeconds}
@@ -109,6 +118,9 @@ export function WorkspaceView({
           onTimeUpdate={onTimeUpdate}
           onDurationChange={onDurationChange}
           onSeek={onSeek}
+          onVideoLoadStart={onVideoLoadStart}
+          onVideoReady={onVideoReady}
+          onVideoError={onVideoError}
         />
         <TagSidebar
           tags={tags}

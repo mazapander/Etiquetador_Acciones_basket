@@ -1,10 +1,11 @@
+import mimetypes
 from datetime import datetime
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -44,9 +45,10 @@ from app.schemas import (
     TagEventUpdate,
     VideoLibraryItemRead,
     VideoRead,
+    VideoTechInfo,
     VideoUpdate,
 )
-from app.video_probe import probe_video_metadata
+from app.video_probe import get_video_tech_info, probe_video_metadata
 
 settings = get_settings()
 
@@ -113,6 +115,13 @@ def resolve_video_path(video: Video) -> Path:
     if storage_candidate.exists():
         return storage_candidate
     return direct_path
+
+
+def guess_video_media_type(path: Path) -> str:
+    media_type, _ = mimetypes.guess_type(path.name)
+    if media_type:
+        return media_type
+    return "video/mp4"
 
 
 def calculate_labeled_percent(db: Session, video: Video) -> float:
@@ -377,21 +386,80 @@ def update_video(video_id: int, payload: VideoUpdate, db: Session = Depends(get_
 
 
 @app.get("/api/videos/{video_id}/stream")
-def stream_video(video_id: int, db: Session = Depends(get_db)):
+def stream_video(video_id: int, request: Request, db: Session = Depends(get_db)):
     video = db.get(Video, video_id)
     if video is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     path = resolve_video_path(video)
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found")
-    return FileResponse(
-        path,
-        media_type="video/mp4",
+
+    file_size = path.stat().st_size
+    media_type = guess_video_media_type(path)
+    range_header = request.headers.get("Range")
+
+    if range_header:
+        range_match = range_header.replace("bytes=", "").split("-")
+        start = int(range_match[0]) if range_match[0] else 0
+        end = int(range_match[1]) if range_match[1] else file_size - 1
+        start = max(0, start)
+        end = min(file_size - 1, end)
+        if start > end:
+            raise HTTPException(status_code=status.HTTP_416_RANGE_NOT_SATISFIABLE, detail="Range not satisfiable")
+
+        def stream_chunk():
+            with open(path, "rb") as f:
+                f.seek(start)
+                remaining = end - start + 1
+                chunk_size = 1024 * 1024
+                while remaining > 0:
+                    read_size = min(chunk_size, remaining)
+                    chunk = f.read(read_size)
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        content_length = end - start + 1
+        return StreamingResponse(
+            stream_chunk(),
+            status_code=206,
+            media_type=media_type,
+            headers={
+                "Content-Range": f"bytes {start}-{end}/{file_size}",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(content_length),
+                "Cache-Control": "public, max-age=86400",
+            },
+        )
+
+    def full_stream():
+        chunk_size = 1024 * 1024
+        with open(path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                yield chunk
+
+    return StreamingResponse(
+        full_stream(),
+        media_type=media_type,
         headers={
             "Accept-Ranges": "bytes",
+            "Content-Length": str(file_size),
             "Cache-Control": "public, max-age=86400",
         },
     )
+
+
+@app.get("/api/videos/{video_id}/tech-info", response_model=VideoTechInfo)
+def get_video_techinfo(video_id: int, db: Session = Depends(get_db)):
+    video = db.get(Video, video_id)
+    if video is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
+    path = resolve_video_path(video)
+    if not path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found")
+    info = get_video_tech_info(path, settings.ffprobe_path)
+    return VideoTechInfo(**info)
 
 
 @app.get("/api/tags", response_model=list[TagDefinitionRead])

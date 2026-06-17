@@ -114,3 +114,25 @@ export type VideoInfo = {
   channel: string | null;
   formats: Array<Record<string, unknown>>;
 };
+
+export type VideoTechInfo = {
+  codec: string | null;
+  codec_name: string | null;
+  profile: string | null;
+  level: number | null;
+  resolution: string | null;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  pix_fmt: string | null;
+  color_space: string | null;
+  color_range: string | null;
+  bitrate: string | null;
+  bitrate_raw: number | null;
+  max_bitrate: string | null;
+  duration: number | null;
+  size_bytes: number | null;
+  size_formatted: string | null;
+  wrapper: string | null;
+  probe_score: number | null;
+};

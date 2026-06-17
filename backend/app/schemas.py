@@ -106,6 +106,28 @@ class VideoUpdate(BaseModel):
     status: VideoStatus | None = None
 
 
+class VideoTechInfo(BaseModel):
+    codec: str | None
+    codec_name: str | None
+    profile: str | None
+    level: int | None
+    resolution: str | None
+    width: int | None
+    height: int | None
+    fps: float | None
+    pix_fmt: str | None
+    color_space: str | None
+    color_range: str | None
+    bitrate: str | None
+    bitrate_raw: int | None
+    max_bitrate: str | None
+    duration: float | None
+    size_bytes: int | None
+    size_formatted: str | None
+    wrapper: str | None
+    probe_score: int | None
+
+
 class ClipExportRequest(BaseModel):
     tag_definition_id: int
     export_mode: str = Field(pattern="^(segments|concatenate|exclude)$")

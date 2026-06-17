@@ -14,6 +14,7 @@ type Props = {
   video: Video;
   streamUrl: string;
   videoRef: RefObject<HTMLVideoElement | null>;
+  videoError: string | null;
   currentTime: number;
   duration: number;
   jumpSeconds: number;
@@ -23,12 +24,16 @@ type Props = {
   onTimeUpdate: (value: number) => void;
   onDurationChange: (value: number) => void;
   onSeek: (seconds: number) => void;
+  onVideoLoadStart: () => void;
+  onVideoReady: () => void;
+  onVideoError: () => void;
 };
 
 export function VideoPlayerPanel({
   video,
   streamUrl,
   videoRef,
+  videoError,
   currentTime,
   duration,
   jumpSeconds,
@@ -38,6 +43,9 @@ export function VideoPlayerPanel({
   onTimeUpdate,
   onDurationChange,
   onSeek,
+  onVideoLoadStart,
+  onVideoReady,
+  onVideoError,
 }: Props) {
   const timelineDuration = duration || video.duration_seconds || 0;
 
@@ -57,6 +65,7 @@ export function VideoPlayerPanel({
       </div>
       <div className="video-shell">
         <video
+          key={video.id}
           ref={videoRef}
           className="video-player"
           src={streamUrl}
@@ -65,9 +74,18 @@ export function VideoPlayerPanel({
           disablePictureInPicture
           onContextMenu={(event) => event.preventDefault()}
           tabIndex={-1}
+          onLoadStart={onVideoLoadStart}
+          onLoadedData={onVideoReady}
           onTimeUpdate={(event) => onTimeUpdate(event.currentTarget.currentTime)}
           onLoadedMetadata={(event) => onDurationChange(event.currentTarget.duration)}
+          onError={onVideoError}
         />
+        {videoError && (
+          <div className="video-error-overlay" role="alert" aria-live="assertive">
+            <strong>No se pudo reproducir el video</strong>
+            <span>{videoError}</span>
+          </div>
+        )}
       </div>
       <div className="time-row">
         <span>{formatTime(currentTime)}</span>

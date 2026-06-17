@@ -1,5 +1,6 @@
 import { RefObject } from "react";
 
+import { VideoInfoButton } from "../components/VideoInfoButton";
 import { formatQuality, formatTime } from "../lib/video";
 import { VideoLibraryItem } from "../types";
 
@@ -58,6 +59,7 @@ export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onO
               <div className="project-card-header">
                 <strong>{item.display_name}</strong>
                 <span className={item.status === "active" ? "project-status active-status" : "project-status"}>{formatStatus(item.status)}</span>
+                <VideoInfoButton videoId={item.id} />
               </div>
               <span>{item.original_filename}</span>
               <div className="project-stats">
