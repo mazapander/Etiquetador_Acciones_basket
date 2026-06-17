@@ -3,6 +3,7 @@ import { Session } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase";
 import { setAccessToken } from "../lib/authSession";
+import "./AuthGate.css";
 
 type AuthGateProps = {
   children: ReactNode;
