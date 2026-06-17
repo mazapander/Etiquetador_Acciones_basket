@@ -1,0 +1,47 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: etiquetador-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    command: sh -c "alembic upgrade head && uvicorn app.main_production:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ${ETIQUETADOR_STORAGE_ROOT:-/srv/etiquetador/storage}:/app/storage
+    networks:
+      - etiquetador-internal
+      - postgres-main
+      - npm-public
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL}
+        VITE_SUPABASE_PUBLISHABLE_KEY: ${VITE_SUPABASE_PUBLISHABLE_KEY}
+    container_name: etiquetador-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - etiquetador-internal
+      - npm-public
+
+networks:
+  etiquetador-internal:
+    driver: bridge
+  npm-public:
+    external: true
+    name: ${NPM_NETWORK:-npm_default}
+  postgres-main:
+    external: true
+    name: ${POSTGRES_NETWORK:-postgres-main}
