@@ -15,7 +15,38 @@ branch_labels = None
 depends_on = None
 
 
+def _is_postgres() -> bool:
+    return op.get_bind().dialect.name == "postgresql"
+
+
+def _upgrade_existing_enums() -> None:
+    if not _is_postgres():
+        return
+    op.execute("ALTER TYPE videostatus ADD VALUE IF NOT EXISTS 'idle'")
+    op.execute("ALTER TYPE tagmode ADD VALUE IF NOT EXISTS 'antagonistic'")
+
+
 def upgrade() -> None:
+    bind = op.get_bind()
+    _upgrade_existing_enums()
+
+    tag_source_enum = sa.Enum("human", "system", name="tagsource")
+    download_status_enum = sa.Enum("pending", "downloading", "completed", "failed", name="downloadstatus")
+    tag_source_enum.create(bind, checkfirst=True)
+    download_status_enum.create(bind, checkfirst=True)
+
+    op.add_column("videos", sa.Column("fps", sa.Float(), nullable=True))
+    op.add_column("videos", sa.Column("width", sa.Integer(), nullable=True))
+    op.add_column("videos", sa.Column("height", sa.Integer(), nullable=True))
+
+    op.add_column("tag_definitions", sa.Column("source", tag_source_enum, nullable=False, server_default="human"))
+    op.add_column("tag_definitions", sa.Column("group_key", sa.String(length=100), nullable=True))
+    op.add_column("tag_definitions", sa.Column("shortcut_key", sa.String(length=20), nullable=True))
+    op.create_index("ix_tag_definitions_group_key", "tag_definitions", ["group_key"], unique=False)
+
+    op.add_column("tag_events", sa.Column("start_frame", sa.Integer(), nullable=True))
+    op.add_column("tag_events", sa.Column("source", tag_source_enum, nullable=False, server_default="human"))
+
     op.create_table(
         "app_users",
         sa.Column("id", sa.Integer(), nullable=False),
@@ -42,6 +73,29 @@ def upgrade() -> None:
     op.add_column("tag_events", sa.Column("user_id", sa.Integer(), nullable=True))
     op.create_index("ix_tag_events_user_id", "tag_events", ["user_id"], unique=False)
     op.create_foreign_key("fk_tag_events_user_id_app_users", "tag_events", "app_users", ["user_id"], ["id"])
+
+    op.create_table(
+        "download_history",
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("url", sa.String(length=1000), nullable=False),
+        sa.Column("title", sa.String(length=500), nullable=True),
+        sa.Column("channel", sa.String(length=255), nullable=True),
+        sa.Column("quality", sa.String(length=20), nullable=False),
+        sa.Column("download_format", sa.String(length=20), nullable=False),
+        sa.Column("output_name", sa.String(length=255), nullable=True),
+        sa.Column("status", download_status_enum, nullable=False, server_default="pending"),
+        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("file_path", sa.String(length=500), nullable=True),
+        sa.Column("file_size_bytes", sa.Integer(), nullable=True),
+        sa.Column("duration_seconds", sa.Float(), nullable=True),
+        sa.Column("requested_by_user_id", sa.Integer(), nullable=True),
+        sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.text("CURRENT_TIMESTAMP")),
+        sa.Column("completed_at", sa.DateTime(), nullable=True),
+        sa.ForeignKeyConstraint(["requested_by_user_id"], ["app_users.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_index("ix_download_history_id", "download_history", ["id"], unique=False)
+    op.create_index("ix_download_history_requested_by_user_id", "download_history", ["requested_by_user_id"], unique=False)
 
     op.create_table(
         "audit_events",
@@ -76,6 +130,10 @@ def downgrade() -> None:
     op.drop_index("ix_audit_events_id", table_name="audit_events")
     op.drop_table("audit_events")
 
+    op.drop_index("ix_download_history_requested_by_user_id", table_name="download_history")
+    op.drop_index("ix_download_history_id", table_name="download_history")
+    op.drop_table("download_history")
+
     op.drop_constraint("fk_tag_events_user_id_app_users", "tag_events", type_="foreignkey")
     op.drop_index("ix_tag_events_user_id", table_name="tag_events")
     op.drop_column("tag_events", "user_id")
@@ -88,3 +146,15 @@ def downgrade() -> None:
     op.drop_index("ix_app_users_supabase_user_id", table_name="app_users")
     op.drop_index("ix_app_users_id", table_name="app_users")
     op.drop_table("app_users")
+
+    op.drop_column("tag_events", "source")
+    op.drop_column("tag_events", "start_frame")
+
+    op.drop_index("ix_tag_definitions_group_key", table_name="tag_definitions")
+    op.drop_column("tag_definitions", "shortcut_key")
+    op.drop_column("tag_definitions", "group_key")
+    op.drop_column("tag_definitions", "source")
+
+    op.drop_column("videos", "height")
+    op.drop_column("videos", "width")
+    op.drop_column("videos", "fps")
