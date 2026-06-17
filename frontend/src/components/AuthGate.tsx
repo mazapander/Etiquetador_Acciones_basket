@@ -2,7 +2,7 @@ import { FormEvent, ReactNode, useEffect, useState } from "react";
 import { Session } from "@supabase/supabase-js";
 
 import { supabase } from "../lib/supabase";
-import { registerAuthStreamWorker, setAccessToken } from "../lib/authSession";
+import { setAccessToken } from "../lib/authSession";
 
 type AuthGateProps = {
   children: ReactNode;
@@ -20,14 +20,12 @@ export function AuthGate({ children }: AuthGateProps) {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAccessToken(data.session?.access_token ?? null);
-      void registerAuthStreamWorker(data.session?.access_token ?? null);
       setIsLoading(false);
     });
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setAccessToken(nextSession?.access_token ?? null);
-      void registerAuthStreamWorker(nextSession?.access_token ?? null);
     });
 
     return () => subscription.subscription.unsubscribe();
@@ -37,9 +35,9 @@ export function AuthGate({ children }: AuthGateProps) {
     event.preventDefault();
     setIsSubmitting(true);
     setError(null);
-    const { error: loginError } = await supabase.auth.signInWithPassword({ email, password });
-    if (loginError) {
-      setError(loginError.message);
+    const result = await supabase.auth.signInWithPassword({ email, password });
+    if (result.error) {
+      setError(result.error.message);
     }
     setIsSubmitting(false);
   }
@@ -60,16 +58,16 @@ export function AuthGate({ children }: AuthGateProps) {
           <div>
             <p className="eyebrow">Acceso privado</p>
             <h1>Etiquetador de acciones</h1>
-            <p className="muted">Entra con el usuario autorizado en Supabase.</p>
+            <p className="muted">Entra con tu usuario autorizado.</p>
           </div>
           {error && <div className="error-banner">{error}</div>}
           <label>
             Email
-            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required />
+            <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
           </label>
           <label>
             Password
-            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required />
+            <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} required />
           </label>
           <button className="primary-button" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Entrando..." : "Entrar"}
