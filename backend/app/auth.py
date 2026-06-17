@@ -17,6 +17,7 @@ from app.models import AppUser, AuditEvent
 
 settings = get_settings()
 _jwks_client: PyJWKClient | None = None
+AUTH_COOKIE_NAME = "etiquetador_session"
 
 VIDEO_ID_RE = re.compile(r"^/api/videos/(?P<video_id>\d+)(?:/|$)")
 ANNOTATION_ID_RE = re.compile(r"^/api/events/(?P<annotation_id>\d+)(?:/|$)")
@@ -48,10 +49,10 @@ def extract_token(request: Request) -> str | None:
     auth_header = request.headers.get("authorization")
     if auth_header and auth_header.lower().startswith("bearer "):
         return auth_header.split(" ", 1)[1].strip()
-    # Fallback for browser media requests where Authorization headers are hard to attach.
-    # Prefer the service worker approach in frontend/public/auth-stream-sw.js.
-    query_token = request.query_params.get("access_token")
-    return query_token.strip() if query_token else None
+    cookie_token = request.cookies.get(AUTH_COOKIE_NAME)
+    if cookie_token:
+        return cookie_token.strip()
+    return None
 
 
 def verify_supabase_token(token: str) -> dict[str, Any]:
@@ -65,7 +66,7 @@ def verify_supabase_token(token: str) -> dict[str, Any]:
         if settings.supabase_jwt_audience:
             decode_kwargs["audience"] = settings.supabase_jwt_audience
         return jwt.decode(token, **decode_kwargs)
-    except Exception as exc:  # noqa: BLE001 - auth failures should not leak internals
+    except Exception as exc:  # noqa: BLE001
         raise AuthError("Invalid or expired auth token") from exc
 
 
@@ -153,9 +154,7 @@ def _extract_annotation_id(path: str) -> int | None:
 
 
 def should_audit(method: str, path: str) -> bool:
-    if not path.startswith("/api") or path == "/api/health":
-        return False
-    if path == "/api/auth/me":
+    if not path.startswith("/api") or path in {"/api/health", "/api/auth/me", "/api/auth/session-cookie"}:
         return False
     if method in {"POST", "PATCH", "DELETE"}:
         return True
@@ -180,12 +179,7 @@ def create_audit_event(
                 video_id=_extract_video_id(path),
                 annotation_id=_extract_annotation_id(path),
                 event_type=event_type_for_request(method, path),
-                event_payload={
-                    "method": method,
-                    "path": path,
-                    "status_code": status_code,
-                    "query": {key: value for key, value in request.query_params.items() if key != "access_token"},
-                },
+                event_payload={"method": method, "path": path, "status_code": status_code},
                 ip_address=get_client_ip(request),
                 user_agent=request.headers.get("user-agent"),
             )
