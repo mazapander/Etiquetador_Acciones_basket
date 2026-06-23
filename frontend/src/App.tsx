@@ -710,10 +710,12 @@ export default function App() {
                 </button>
               </div>
             ) : (
-              <h1 className={route === "/label" && video ? "editable-title" : ""} onClick={() => route === "/label" && video && setIsEditingTitle(true)}>
-                {pageTitle}
-              </h1>
-              {route === "/label" && video && <VideoInfoButton videoId={video.id} />}
+              <>
+                <h1 className={route === "/label" && video ? "editable-title" : ""} onClick={() => route === "/label" && video && setIsEditingTitle(true)}>
+                  {pageTitle}
+                </h1>
+                {route === "/label" && video && <VideoInfoButton videoId={video.id} />}
+              </>
             )}
           </div>
         </div>
