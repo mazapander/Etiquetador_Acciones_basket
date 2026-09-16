@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!.env.docker.example
 node_modules/
 dist/
 build/
@@ -12,5 +13,6 @@ __pycache__/
 backend/etiquetador.db
 backend/storage/videos/*
 !backend/storage/videos/.gitkeep
+data/
 *.mp4
 backend/.tmp

@@ -28,6 +28,24 @@ copy .env.example .env
 
 Frontend y backend leen desde ese mismo `.env`.
 
+## Docker
+
+Docker Compose levanta el frontend y el backend, con un unico `.env` compartido:
+
+```powershell
+copy .env.docker.example .env
+docker compose up --build
+```
+
+La aplicacion queda disponible en `http://localhost:5173` y la API en
+`http://localhost:8000`.
+
+Edita `LOCAL_MEDIA_DIR` en `.env` para elegir la carpeta de tu disco donde se
+guardaran la base de datos, los videos cargados o descargados y los recortes.
+Por ejemplo: `LOCAL_MEDIA_DIR=C:/Users/tu_usuario/Videos/Etiquetador`.
+Los cambios en `VITE_API_BASE_URL` requieren reconstruir el frontend con
+`docker compose up --build`.
+
 En Windows, confirma:
 
 ```powershell
