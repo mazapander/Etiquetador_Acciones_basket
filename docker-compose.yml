@@ -8,6 +8,15 @@ services:
       - type: bind
         source: ${LOCAL_MEDIA_DIR:-./data}
         target: /data
+      - type: bind
+        source: ${LOCAL_MEDIA_DIR:-./data}/videos
+        target: ${VIDEO_STORAGE_DIR}
+      - type: bind
+        source: ${LOCAL_MEDIA_DIR:-./data}/library
+        target: ${VIDEO_LIBRARY_DIR}
+      - type: bind
+        source: ${LOCAL_MEDIA_DIR:-./data}/clip_exports
+        target: ${CLIP_EXPORTS_DIR}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 5s

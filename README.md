@@ -43,6 +43,8 @@ La aplicacion queda disponible en `http://localhost:5173` y la API en
 Edita `LOCAL_MEDIA_DIR` en `.env` para elegir la carpeta de tu disco donde se
 guardaran la base de datos, los videos cargados o descargados y los recortes.
 Por ejemplo: `LOCAL_MEDIA_DIR=C:/Users/tu_usuario/Videos/Etiquetador`.
+Compose crea dentro de esa carpeta `videos`, `library` y `clip_exports` y los
+monta usando los directorios configurados en el mismo `.env`.
 Los cambios en `VITE_API_BASE_URL` requieren reconstruir el frontend con
 `docker compose up --build`.
 
