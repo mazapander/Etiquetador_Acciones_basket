@@ -4,6 +4,7 @@ import pytest
 
 from app.clip_export import ClipSegment, concatenate_segments, export_segment
 from app.config import get_settings
+from app.video_probe import probe_video_metadata
 
 
 def test_ffmpeg_can_export_and_concatenate(tmp_path):
@@ -17,6 +18,13 @@ def test_ffmpeg_can_export_and_concatenate(tmp_path):
          "-c:v", "libx264", "-pix_fmt", "yuv420p", str(source)],
         check=True,
     )
+    metadata = probe_video_metadata(source, settings.ffprobe_path)
+    assert metadata["fps"] == pytest.approx(25)
+    assert metadata["width"] == 320
+    assert metadata["height"] == 180
+    assert metadata["duration_seconds"] == pytest.approx(3, abs=0.1)
+    assert metadata["codec_name"] == "h264"
+    assert metadata["size_bytes"] > 0
 
     paths = []
     for index, start, end in ((1, 0.0, 1.0), (2, 1.0, 2.0)):

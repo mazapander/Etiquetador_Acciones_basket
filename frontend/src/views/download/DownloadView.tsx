@@ -12,6 +12,7 @@ type DownloadProgress = {
   speed?: string | null;
   eta?: string | null;
   error?: string | null;
+  video_id?: number | null;
 };
 
 type HistoryItem = {
@@ -31,7 +32,7 @@ type HistoryItem = {
   completed_at: string | null;
 };
 
-export function DownloadView() {
+export function DownloadView({ onVideoImported }: { onVideoImported: (videoId: number) => void }) {
   const [url, setUrl] = useState("");
   const [videoInfo, setVideoInfo] = useState<VideoInfo | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -98,6 +99,7 @@ export function DownloadView() {
           if (status.status === "completed" || status.status === "failed") {
             clearInterval(pollInterval);
             loadHistory();
+            if (status.status === "completed" && status.video_id) onVideoImported(status.video_id);
           }
         } catch {
           clearInterval(pollInterval);

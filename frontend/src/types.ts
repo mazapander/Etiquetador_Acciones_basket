@@ -12,6 +12,18 @@ export type Video = {
   fps: number | null;
   width: number | null;
   height: number | null;
+  codec_name: string | null;
+  container_name: string | null;
+  bit_rate: number | null;
+  size_bytes: number | null;
+  game_format: string | null;
+  category: string | null;
+  match_name: string | null;
+  competition: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  match_date: string | null;
+  details_completed: boolean;
   status: VideoStatus;
   created_at: string;
   updated_at: string;

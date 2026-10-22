@@ -15,9 +15,10 @@ type Props = {
   onFileChange: (file: File | undefined) => void;
   onDeleteVideo: (video: VideoLibraryItem) => void;
   onSync: () => void;
+  onEditDetails: (item: VideoLibraryItem) => void;
 };
 
-export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onOpenLabel, onOpenClips, onOpenUpload, onFileChange, onDeleteVideo, onSync }: Props) {
+export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onOpenLabel, onOpenClips, onOpenUpload, onFileChange, onDeleteVideo, onSync, onEditDetails }: Props) {
   function formatStatus(status: VideoLibraryItem["status"]) {
     if (status === "active") {
       return "Activo";
@@ -62,6 +63,7 @@ export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onO
                 <VideoInfoButton videoId={item.id} />
               </div>
               <span>{item.original_filename}</span>
+              {item.match_name && <span>{item.match_name}</span>}
               <div className="project-stats">
                 <div>
                   <small>Duracion</small>
@@ -84,6 +86,8 @@ export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onO
                 <div className="project-progress-bar" style={{ width: `${item.labeled_percent}%` }} />
               </div>
               <div className="project-meta">
+                <span>{item.game_format ?? "Sin modalidad"}</span>
+                <span>{item.category ?? "Sin categoría"}</span>
                 <span>{item.event_count} marcas</span>
                 <span>{item.file_exists ? "Disponible" : "Sin archivo"}</span>
               </div>
@@ -94,6 +98,9 @@ export function ProjectsView({ videos, isUploading, isSyncing, fileInputRef, onO
               </button>
               <button type="button" className="secondary-button project-action-button" onClick={() => onOpenClips(item)}>
                 Recortes
+              </button>
+              <button type="button" className="secondary-button project-action-button" onClick={() => onEditDetails(item)}>
+                {item.details_completed ? "Editar datos" : "Completar datos"}
               </button>
             </div>
             <button

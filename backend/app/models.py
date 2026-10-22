@@ -1,7 +1,7 @@
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Date, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -43,6 +43,18 @@ class Video(Base):
     fps: Mapped[float | None] = mapped_column(Float, nullable=True)
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    codec_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    container_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    bit_rate: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    game_format: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    category: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    match_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    competition: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    home_team: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    away_team: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    match_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    details_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     status: Mapped[VideoStatus] = mapped_column(SAEnum(VideoStatus), default=VideoStatus.active, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)

@@ -17,6 +17,13 @@ def _parse_fraction(value: str | None) -> float | None:
         return None
 
 
+def _parse_int(value: str | int | None) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def probe_video_metadata(path: Path, ffprobe_path: Path) -> dict[str, float | int | str | None]:
     command = [
         str(ffprobe_path),
@@ -25,7 +32,7 @@ def probe_video_metadata(path: Path, ffprobe_path: Path) -> dict[str, float | in
         "-select_streams",
         "v:0",
         "-show_entries",
-        "stream=avg_frame_rate,r_frame_rate,width,height,codec_name,codec_long_name,bit_rate,max_bit_rate,profile",
+        "stream=avg_frame_rate,r_frame_rate,duration,width,height,codec_name,codec_long_name,bit_rate,max_bit_rate,profile",
         "-show_entries",
         "format=format_name,format_long_name,duration,size,bit_rate,max_bit_rate",
         "-of",
@@ -45,7 +52,7 @@ def probe_video_metadata(path: Path, ffprobe_path: Path) -> dict[str, float | in
     streams = payload.get("streams", [])
     stream = streams[0] if streams else {}
 
-    duration = format_info.get("duration")
+    duration = format_info.get("duration") or stream.get("duration")
     fps = _parse_fraction(stream.get("avg_frame_rate")) or _parse_fraction(stream.get("r_frame_rate"))
 
     return {
@@ -53,13 +60,13 @@ def probe_video_metadata(path: Path, ffprobe_path: Path) -> dict[str, float | in
         "format_name": format_info.get("format_name"),
         "format_long_name": format_info.get("format_long_name"),
         "fps": fps,
-        "width": int(stream["width"]) if stream.get("width") is not None else None,
-        "height": int(stream["height"]) if stream.get("height") is not None else None,
+        "width": _parse_int(stream.get("width")),
+        "height": _parse_int(stream.get("height")),
         "codec_name": stream.get("codec_name"),
         "codec_long_name": stream.get("codec_long_name"),
-        "bit_rate": int(format_info.get("bit_rate")) if format_info.get("bit_rate") else None,
-        "max_bit_rate": int(format_info.get("max_bit_rate")) if format_info.get("max_bit_rate") else None,
-        "size_bytes": int(format_info.get("size")) if format_info.get("size") else None,
+        "bit_rate": _parse_int(format_info.get("bit_rate")),
+        "max_bit_rate": _parse_int(format_info.get("max_bit_rate")),
+        "size_bytes": _parse_int(format_info.get("size")),
         "profile": stream.get("profile"),
     }
 
@@ -93,7 +100,9 @@ def get_video_tech_info(path: Path, ffprobe_path: Path) -> dict:
     stream = streams[0] if streams else {}
 
     duration = format_info.get("duration")
-    size_bytes = int(format_info.get("size")) if format_info.get("size") else None
+    size_bytes = _parse_int(format_info.get("size"))
+    bit_rate = _parse_int(format_info.get("bit_rate"))
+    max_bit_rate = _parse_int(format_info.get("max_bit_rate"))
     fps = _parse_fraction(stream.get("avg_frame_rate")) or _parse_fraction(stream.get("r_frame_rate"))
 
     return {
@@ -102,15 +111,15 @@ def get_video_tech_info(path: Path, ffprobe_path: Path) -> dict:
         "profile": stream.get("profile"),
         "level": stream.get("level"),
         "resolution": f"{stream.get('width')}x{stream.get('height')}" if stream.get("width") and stream.get("height") else None,
-        "width": int(stream["width"]) if stream.get("width") else None,
-        "height": int(stream["height"]) if stream.get("height") else None,
+        "width": _parse_int(stream.get("width")),
+        "height": _parse_int(stream.get("height")),
         "fps": fps,
         "pix_fmt": stream.get("pix_fmt"),
         "color_space": stream.get("color_space"),
         "color_range": stream.get("color_range"),
-        "bitrate": _format_bitrate(int(format_info["bit_rate"])) if format_info.get("bit_rate") else None,
-        "bitrate_raw": int(format_info["bit_rate"]) if format_info.get("bit_rate") else None,
-        "max_bitrate": _format_bitrate(int(format_info["max_bit_rate"])) if format_info.get("max_bit_rate") else None,
+        "bitrate": _format_bitrate(bit_rate) if bit_rate else None,
+        "bitrate_raw": bit_rate,
+        "max_bitrate": _format_bitrate(max_bit_rate) if max_bit_rate else None,
         "duration": _parse_fraction(duration),
         "size_bytes": size_bytes,
         "size_formatted": _format_size(size_bytes) if size_bytes else None,

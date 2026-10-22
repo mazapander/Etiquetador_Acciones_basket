@@ -1669,6 +1669,20 @@ h2 {
   color: var(--warning);
 }
 
+.video-details-modal { width: min(720px, 100%); max-height: min(90dvh, 850px); overflow: auto; }
+.video-details-modal h2, .video-details-modal h3, .video-details-modal p { margin: 0; }
+.video-details-modal h3 { font-size: 14px; }
+.video-details-modal .details-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.video-details-modal .field-block { min-width: 0; font-size: 12px; }
+.video-details-modal .field-block input, .video-details-modal .field-block select { width: 100%; min-height: 36px; }
+.detected-tech { color: var(--text-soft); font-size: 12px; }
+.project-card-actions { flex-wrap: wrap; }
+.project-card-actions .project-action-button { min-width: 95px; }
+
+@media (max-width: 600px) {
+  .video-details-modal .details-grid { grid-template-columns: 1fr; }
+}
+
 /* Etiquetado: vídeo y registros comparten la altura de la ventana. */
 @media (min-width: 1001px) {
   .app-shell:has(.workspace-view) {

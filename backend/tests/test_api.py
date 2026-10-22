@@ -31,7 +31,11 @@ def make_client(tmp_path, monkeypatch):
     monkeypatch.setattr("app.main.settings.video_storage_dir", storage_dir)
     monkeypatch.setattr("app.main.settings.video_library_dir", library_dir)
     monkeypatch.setattr("app.main.settings.clip_exports_dir", exports_dir)
-    monkeypatch.setattr("app.main.probe_video_metadata", lambda path, ffprobe_path: {"duration_seconds": 12.5, "fps": 25.0, "width": 1920, "height": 1080})
+    monkeypatch.setattr("app.main.SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr("app.main.probe_video_metadata", lambda path, ffprobe_path: {
+        "duration_seconds": 12.5, "fps": 25.0, "width": 1920, "height": 1080,
+        "format_name": "mp4", "codec_name": "h264", "bit_rate": 4_000_000, "size_bytes": path.stat().st_size,
+    })
     app.dependency_overrides[get_db] = override_get_db
     return TestClient(app)
 
@@ -74,11 +78,66 @@ def test_upload_edit_and_complete_video(tmp_path, monkeypatch):
     assert video["fps"] == 25.0
     assert video["width"] == 1920
     assert video["height"] == 1080
+    assert video["codec_name"] == "h264"
+    assert video["container_name"] == "mp4"
+    assert video["bit_rate"] == 4_000_000
+    assert video["details_completed"] is False
+    incomplete = client.patch(f"/api/videos/{video['id']}", json={"details_completed": True})
+    assert incomplete.status_code == 422
+
+    details = client.patch(f"/api/videos/{video['id']}", json={
+        "game_format": "5x5", "category": "Senior femenino", "match_name": "Equipo A - Equipo B",
+        "home_team": "Equipo A", "away_team": "Equipo B", "competition": "Liga",
+        "match_date": "2026-10-22", "details_completed": True,
+    })
+    assert details.status_code == 200
+    assert details.json()["game_format"] == "5x5"
+    assert details.json()["match_date"] == "2026-10-22"
+    assert details.json()["details_completed"] is True
 
     patch = client.patch(f"/api/videos/{video['id']}", json={"display_name": "Final A", "status": "completed"})
     assert patch.status_code == 200
     assert patch.json()["display_name"] == "Final A"
     assert patch.json()["status"] == "completed"
+
+
+def test_download_registers_video_and_probes_it(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    library = tmp_path / "library"
+
+    def fake_download(request, progress_callback):
+        (library / "downloaded.mp4").write_bytes(b"video")
+        return str(library)
+
+    monkeypatch.setattr("app.main.download_video", fake_download)
+    response = client.post("/api/download/start", json={"url": "https://example.com/match", "quality": "best", "download_format": "mp4"})
+    assert response.status_code == 200
+    task_id = response.json()["task_id"]
+    for _ in range(100):
+        progress = client.get(f"/api/download/progress/{task_id}").json()
+        if progress["status"] != "downloading":
+            break
+        time.sleep(0.01)
+    assert progress["status"] == "completed", progress.get("error")
+    assert progress["video_id"] is not None
+    videos = client.get("/api/videos").json()
+    imported = next(item for item in videos if item["id"] == progress["video_id"])
+    assert imported["original_filename"] == "downloaded.mp4"
+    assert imported["fps"] == 25.0
+    assert imported["details_completed"] is False
+
+
+def test_library_file_is_reanalyzed_after_copy_finishes(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    file_path = tmp_path / "library" / "copied.mp4"
+    file_path.write_bytes(b"first")
+    first = client.get("/api/videos").json()[0]
+    assert first["size_bytes"] == 5
+
+    file_path.write_bytes(b"finished-video")
+    second = client.get("/api/videos").json()[0]
+    assert second["id"] == first["id"]
+    assert second["size_bytes"] == len(b"finished-video")
 
 
 def test_uploading_new_video_sets_previous_to_idle(tmp_path, monkeypatch):

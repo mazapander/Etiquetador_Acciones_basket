@@ -45,6 +45,7 @@ class DownloadProgress(BaseModel):
     stage: str = "Starting..."
     error: str | None = None
     output_path: str | None = None
+    video_id: int | None = None
 
 
 def fetch_video_info(url: str) -> VideoInfo:

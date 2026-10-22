@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -87,6 +87,18 @@ class VideoRead(BaseModel):
     fps: float | None
     width: int | None
     height: int | None
+    codec_name: str | None
+    container_name: str | None
+    bit_rate: int | None
+    size_bytes: int | None
+    game_format: str | None
+    category: str | None
+    match_name: str | None
+    competition: str | None
+    home_team: str | None
+    away_team: str | None
+    match_date: date | None
+    details_completed: bool
     status: VideoStatus
     created_at: datetime
     updated_at: datetime
@@ -108,28 +120,36 @@ class VideoUpdate(BaseModel):
     fps: float | None = Field(default=None, gt=0)
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
+    game_format: str | None = Field(default=None, min_length=1, max_length=30)
+    category: str | None = Field(default=None, min_length=1, max_length=100)
+    match_name: str | None = Field(default=None, min_length=1, max_length=255)
+    competition: str | None = Field(default=None, max_length=150)
+    home_team: str | None = Field(default=None, max_length=120)
+    away_team: str | None = Field(default=None, max_length=120)
+    match_date: date | None = None
+    details_completed: bool | None = None
 
 
 class VideoTechInfo(BaseModel):
-    codec: str | None
-    codec_name: str | None
-    profile: str | None
-    level: int | None
-    resolution: str | None
-    width: int | None
-    height: int | None
-    fps: float | None
-    pix_fmt: str | None
-    color_space: str | None
-    color_range: str | None
-    bitrate: str | None
-    bitrate_raw: int | None
-    max_bitrate: str | None
-    duration: float | None
-    size_bytes: int | None
-    size_formatted: str | None
-    wrapper: str | None
-    probe_score: int | None
+    codec: str | None = None
+    codec_name: str | None = None
+    profile: str | None = None
+    level: int | None = None
+    resolution: str | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    pix_fmt: str | None = None
+    color_space: str | None = None
+    color_range: str | None = None
+    bitrate: str | None = None
+    bitrate_raw: int | None = None
+    max_bitrate: str | None = None
+    duration: float | None = None
+    size_bytes: int | None = None
+    size_formatted: str | None = None
+    wrapper: str | None = None
+    probe_score: int | None = None
 
 
 class ClipExportRequest(BaseModel):

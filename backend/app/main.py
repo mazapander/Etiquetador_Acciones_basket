@@ -1,6 +1,8 @@
 import mimetypes
+import logging
 import shutil
 import tempfile
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +32,7 @@ from app.video_downloader import (
     fetch_video_info,
 )
 from app.config import get_settings
-from app.database import Base, engine, get_db
+from app.database import Base, SessionLocal, engine, get_db
 from app.models import DownloadHistory, DownloadStatus, TagDefinition, TagEvent, TagMode, Video, VideoStatus
 from app.schemas import (
     AntagonisticPairCreate,
@@ -57,6 +59,10 @@ settings = get_settings()
 
 clip_export_tasks: dict[int, dict] = {}
 clip_previews: dict[int, Path] = {}
+library_sync_lock = threading.Lock()
+library_watch_stop = threading.Event()
+library_watch_thread: threading.Thread | None = None
+logger = logging.getLogger(__name__)
 DEFAULT_TAG_COLORS = [
     "#2563eb",
     "#16a34a",
@@ -70,6 +76,10 @@ DEFAULT_TAG_COLORS = [
     "#0f766e",
 ]
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v"}
+VIDEO_PROBE_FIELDS = {
+    "duration_seconds": "duration_seconds", "fps": "fps", "width": "width", "height": "height",
+    "codec_name": "codec_name", "container_name": "format_name", "bit_rate": "bit_rate", "size_bytes": "size_bytes",
+}
 
 app = FastAPI(title=settings.app_name)
 app.add_middleware(
@@ -90,14 +100,21 @@ def init_db() -> None:
 
 @app.on_event("startup")
 def on_startup() -> None:
+    global library_watch_thread
     init_db()
     for path in Path(tempfile.gettempdir()).glob("clip-preview-*"):
         if path.is_dir() and time.time() - path.stat().st_mtime > 86400:
             shutil.rmtree(path, ignore_errors=True)
+    library_watch_stop.clear()
+    library_watch_thread = threading.Thread(target=watch_library, daemon=True)
+    library_watch_thread.start()
 
 
 @app.on_event("shutdown")
 def on_shutdown() -> None:
+    library_watch_stop.set()
+    if library_watch_thread is not None:
+        library_watch_thread.join(timeout=2)
     for path in clip_previews.values():
         shutil.rmtree(path.parent, ignore_errors=True)
     clip_previews.clear()
@@ -159,35 +176,60 @@ def calculate_labeled_percent(db: Session, video: Video) -> float:
     return round(min(100.0, max(0.0, (labeled_seconds / video.duration_seconds) * 100)), 1)
 
 
-def sync_library_videos(db: Session) -> None:
+def apply_video_probe(video: Video, path: Path, *, missing_only: bool = False) -> None:
+    metadata = probe_video_metadata(path, settings.ffprobe_path)
+    for field, probe_key in VIDEO_PROBE_FIELDS.items():
+        value = metadata.get(probe_key)
+        if value is not None and (not missing_only or getattr(video, field) is None):
+            setattr(video, field, value)
+    if video.size_bytes is None:
+        video.size_bytes = path.stat().st_size
+
+
+def watch_library() -> None:
+    while not library_watch_stop.is_set():
+        try:
+            with SessionLocal() as db:
+                sync_library_videos(db)
+        except Exception:
+            logger.exception("No se pudo sincronizar la carpeta de vídeos")
+        if library_watch_stop.wait(15):
+            break
+
+
+def sync_library_videos(db: Session) -> list[Video]:
+    with library_sync_lock:
+        return _sync_library_videos(db)
+
+
+def _sync_library_videos(db: Session) -> list[Video]:
     known_paths = {Path(video.storage_path).resolve(): video for video in db.scalars(select(Video)).all()}
+    created: list[Video] = []
+    for resolved, existing in known_paths.items():
+        if not resolved.is_file():
+            continue
+        if existing.size_bytes != resolved.stat().st_size:
+            apply_video_probe(existing, resolved)
+        elif any(getattr(existing, field) is None for field in VIDEO_PROBE_FIELDS):
+            apply_video_probe(existing, resolved, missing_only=True)
     for path in sorted(settings.video_library_dir.iterdir()):
         if not path.is_file() or path.suffix.lower() not in VIDEO_EXTENSIONS:
             continue
         resolved = path.resolve()
         if resolved in known_paths:
-            existing = known_paths[resolved]
-            if any(getattr(existing, field) is None for field in ("duration_seconds", "fps", "width", "height")):
-                metadata = probe_video_metadata(resolved, settings.ffprobe_path)
-                for field in ("duration_seconds", "fps", "width", "height"):
-                    if getattr(existing, field) is None and metadata[field] is not None:
-                        setattr(existing, field, metadata[field])
             continue
-        metadata = probe_video_metadata(resolved, settings.ffprobe_path)
-        db.add(
-            Video(
-                original_filename=path.name,
-                stored_filename=f"{uuid5(NAMESPACE_URL, str(resolved)).hex}{path.suffix.lower()}",
-                display_name=path.stem,
-                storage_path=str(resolved),
-                duration_seconds=metadata["duration_seconds"],
-                fps=metadata["fps"],
-                width=metadata["width"],
-                height=metadata["height"],
-                status=VideoStatus.idle,
-            )
+        video = Video(
+            original_filename=path.name,
+            stored_filename=f"{uuid5(NAMESPACE_URL, str(resolved)).hex}{path.suffix.lower()}",
+            display_name=path.stem,
+            storage_path=str(resolved),
+            status=VideoStatus.idle,
         )
+        apply_video_probe(video, resolved)
+        db.add(video)
+        created.append(video)
     db.commit()
+    return created
 
 
 def serialize_video_item(db: Session, video: Video) -> VideoLibraryItemRead:
@@ -370,19 +412,14 @@ def upload_video(
     with storage_path.open("wb") as destination:
         while chunk := file.file.read(1024 * 1024):
             destination.write(chunk)
-    metadata = probe_video_metadata(storage_path, settings.ffprobe_path)
-
     video = Video(
         original_filename=file.filename or stored_filename,
         stored_filename=stored_filename,
         display_name=display_name or Path(file.filename or stored_filename).stem,
         storage_path=str(storage_path),
-        duration_seconds=metadata["duration_seconds"],
-        fps=metadata["fps"],
-        width=metadata["width"],
-        height=metadata["height"],
         status=VideoStatus.active,
     )
+    apply_video_probe(video, storage_path)
     db.add(video)
     db.commit()
     db.refresh(video)
@@ -400,6 +437,14 @@ def update_video(video_id: int, payload: VideoUpdate, db: Session = Depends(get_
         value = getattr(payload, field)
         if value is not None:
             setattr(video, field, value)
+    for field in ("game_format", "category", "match_name", "competition", "home_team", "away_team", "match_date"):
+        if field in payload.model_fields_set:
+            value = getattr(payload, field)
+            setattr(video, field, value.strip() if isinstance(value, str) else value)
+    if payload.details_completed is not None:
+        video.details_completed = payload.details_completed
+    if video.details_completed and not all((video.game_format, video.category, video.match_name)):
+        raise HTTPException(status_code=422, detail="Formato, categoría y partido son obligatorios")
     if payload.status is not None:
         if payload.status == VideoStatus.active:
             return set_active_video(db, video)
@@ -486,6 +531,15 @@ def get_video_techinfo(video_id: int, db: Session = Depends(get_db)):
     if not path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video file not found")
     info = get_video_tech_info(path, settings.ffprobe_path)
+    for key, value in (("fps", video.fps), ("width", video.width), ("height", video.height),
+                       ("duration", video.duration_seconds), ("size_bytes", video.size_bytes),
+                       ("codec_name", video.codec_name), ("bitrate_raw", video.bit_rate)):
+        if info.get(key) is None:
+            info[key] = value
+    if not info.get("resolution") and video.width and video.height:
+        info["resolution"] = f"{video.width}x{video.height}"
+    if not info.get("wrapper"):
+        info["wrapper"] = video.container_name
     return VideoTechInfo(**info)
 
 
@@ -886,26 +940,45 @@ def start_download(request: DownloadRequest, db: Session = Depends(get_db)):
 
     def run_download():
         try:
+            started_at = time.time()
+            before_paths = {path.resolve() for path in settings.video_library_dir.iterdir() if path.is_file()}
             output_dir = download_video(request, progress_callback)
+            with SessionLocal() as worker_db:
+                sync_library_videos(worker_db)
+                downloaded = [
+                    video for video in worker_db.scalars(select(Video)).all()
+                    if Path(video.storage_path).parent == Path(output_dir).resolve()
+                    and Path(video.storage_path).exists()
+                    and (Path(video.storage_path).resolve() not in before_paths or Path(video.storage_path).stat().st_mtime >= started_at - 2)
+                ]
+                downloaded.sort(key=lambda video: Path(video.storage_path).stat().st_mtime, reverse=True)
+                imported = downloaded[0] if downloaded else None
+                imported_id = imported.id if imported else None
+                db_entry = worker_db.get(DownloadHistory, history_entry.id)
+                if db_entry:
+                    db_entry.status = DownloadStatus.completed
+                    db_entry.completed_at = datetime.utcnow()
+                    if imported:
+                        db_entry.file_path = imported.storage_path
+                        db_entry.file_size_bytes = imported.size_bytes
+                        db_entry.duration_seconds = imported.duration_seconds
+                    worker_db.commit()
             download_tasks[task_id] = DownloadProgress(
                 status="completed",
                 percent=100,
                 stage="Download completed",
                 output_path=output_dir,
+                video_id=imported_id,
             )
-            db_entry = db.get(DownloadHistory, history_entry.id)
-            if db_entry:
-                db_entry.status = DownloadStatus.completed
-                db_entry.completed_at = datetime.utcnow()
-                db.commit()
         except Exception as exc:
             download_tasks[task_id] = DownloadProgress(status="failed", error=str(exc))
-            db_entry = db.get(DownloadHistory, history_entry.id)
-            if db_entry:
-                db_entry.status = DownloadStatus.failed
-                db_entry.error_message = str(exc)
-                db_entry.completed_at = datetime.utcnow()
-                db.commit()
+            with SessionLocal() as worker_db:
+                db_entry = worker_db.get(DownloadHistory, history_entry.id)
+                if db_entry:
+                    db_entry.status = DownloadStatus.failed
+                    db_entry.error_message = str(exc)
+                    db_entry.completed_at = datetime.utcnow()
+                    worker_db.commit()
 
     import threading
     thread = threading.Thread(target=run_download)

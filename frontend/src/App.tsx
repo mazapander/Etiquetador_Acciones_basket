@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateTagModal } from "./components/CreateTagModal";
 import { VideoInfoButton } from "./components/VideoInfoButton";
+import { makeVideoDetailsDraft, VideoDetailsDraft, VideoDetailsModal } from "./components/VideoDetailsModal";
 import { api, API_BASE } from "./lib/api";
 import { buildOpenRanges, readStoredJumpSeconds, readStoredTheme, suggestAvailableColor, suggestSecondColor } from "./lib/video";
 import { useVideoPrefetch } from "./lib/useVideoPrefetch";
@@ -37,6 +38,7 @@ function navigateTo(path: RoutePath, replace = false) {
 export default function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const metadataPrompted = useRef<Set<number>>(new Set());
+  const galleryPrompted = useRef(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [route, setRoute] = useState<RoutePath>(() => normalizeRoute(window.location.pathname));
   const [video, setVideo] = useState<Video | null>(null);
@@ -78,7 +80,10 @@ export default function App() {
   const [isExportingClips, setIsExportingClips] = useState(false);
   const [clipKeepSegments, setClipKeepSegments] = useState(true);
   const [exportProgress, setExportProgress] = useState<{ current: number; total: number; stage: string } | null>(null);
-  const [metadataDraft, setMetadataDraft] = useState<{ duration_seconds: string; fps: string; width: string; height: string } | null>(null);
+  const [metadataDraft, setMetadataDraft] = useState<VideoDetailsDraft | null>(null);
+  const [metadataTarget, setMetadataTarget] = useState<Video | null>(null);
+  const [isSavingMetadata, setIsSavingMetadata] = useState(false);
+  const [metadataError, setMetadataError] = useState<string | null>(null);
   const [previewTaskId, setPreviewTaskId] = useState<number | null>(null);
   const [isRenderingPreview, setIsRenderingPreview] = useState(false);
 
@@ -118,23 +123,39 @@ export default function App() {
 
   useVideoPrefetch(video ? video.id : null);
 
+  function showVideoDetails(item: Video) {
+    metadataPrompted.current.add(item.id);
+    setMetadataError(null);
+    setMetadataTarget(item);
+    setMetadataDraft(makeVideoDetailsDraft(item));
+  }
+
   useEffect(() => {
-    if (route === "/label" && video && !metadataPrompted.current.has(video.id) && (!video.duration_seconds || !video.fps || !video.width || !video.height)) {
-      metadataPrompted.current.add(video.id);
-      setMetadataDraft({ duration_seconds: String(video.duration_seconds ?? ""), fps: String(video.fps ?? ""), width: String(video.width ?? ""), height: String(video.height ?? "") });
-    } else {
-      setMetadataDraft(null);
+    if ((route === "/label" || route === "/clips") && video && !video.details_completed && !metadataPrompted.current.has(video.id)) {
+      showVideoDetails(video);
     }
-  }, [route, video?.id, video?.duration_seconds, video?.fps, video?.width, video?.height]);
+  }, [route, video?.id, video?.details_completed]);
 
   async function saveMetadata() {
-    if (!video || !metadataDraft) return;
-    const values = Object.fromEntries(Object.entries(metadataDraft).filter(([, value]) => Number(value) > 0).map(([key, value]) => [key, Number(value)]));
+    if (!metadataTarget || !metadataDraft) return;
+    const values = {
+      game_format: metadataDraft.game_format.trim(), category: metadataDraft.category.trim(), match_name: metadataDraft.match_name.trim(),
+      competition: metadataDraft.competition.trim() || null, home_team: metadataDraft.home_team.trim() || null,
+      away_team: metadataDraft.away_team.trim() || null, match_date: metadataDraft.match_date || null,
+      details_completed: true,
+      ...Object.fromEntries((["duration_seconds", "fps", "width", "height"] as const)
+        .filter((key) => Number(metadataDraft[key]) > 0).map((key) => [key, Number(metadataDraft[key])])),
+    };
+    setIsSavingMetadata(true);
     try {
-      const updated = await api<Video>(`/api/videos/${video.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
-      setVideo(updated);
+      const updated = await api<Video>(`/api/videos/${metadataTarget.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
+      if (video?.id === updated.id) setVideo(updated);
+      setVideoLibrary((current) => current.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+      setMetadataTarget(null);
       setMetadataDraft(null);
-    } catch (err) { setError(err instanceof Error ? err.message : "No se pudieron guardar los metadatos"); }
+      setError(null);
+    } catch (err) { setMetadataError(err instanceof Error ? err.message : "No se pudieron guardar los datos del partido"); }
+    finally { setIsSavingMetadata(false); }
   }
 
   async function discardPreview() {
@@ -222,6 +243,11 @@ export default function App() {
     setTags(currentTags);
     setVideoLibrary(library);
     const effectiveRoute = preferredRoute ?? route;
+    if (effectiveRoute === "/gallery" && !galleryPrompted.current) {
+      galleryPrompted.current = true;
+      const pending = library.find((item) => !item.details_completed && !metadataPrompted.current.has(item.id));
+      if (pending) showVideoDetails(pending);
+    }
     const nextVideo =
       (preferredVideoId ? library.find((item) => item.id === preferredVideoId) : null)
       ?? (selectedVideoId ? library.find((item) => item.id === selectedVideoId) : null)
@@ -261,6 +287,27 @@ export default function App() {
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
+
+  useEffect(() => {
+    if (route !== "/gallery") return;
+    if (!galleryPrompted.current && videoLibrary.length > 0) {
+      galleryPrompted.current = true;
+      const pending = videoLibrary.find((item) => !item.details_completed && !metadataPrompted.current.has(item.id));
+      if (pending) showVideoDetails(pending);
+    }
+    const knownIds = new Set(videoLibrary.map((item) => item.id));
+    const interval = window.setInterval(async () => {
+      try {
+        const library = await api<VideoLibraryItem[]>("/api/videos");
+        setVideoLibrary(library);
+        const added = library.find((item) => !knownIds.has(item.id) && !metadataPrompted.current.has(item.id));
+        if (added && !metadataTarget) showVideoDetails(added);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "No se pudo actualizar la galería");
+      }
+    }, 15000);
+    return () => window.clearInterval(interval);
+  }, [route, videoLibrary, metadataTarget?.id]);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -357,11 +404,13 @@ export default function App() {
     body.append("file", file);
     body.append("display_name", file.name.replace(/\.[^/.]+$/, ""));
     try {
-      await api<Video>("/api/videos", {
+      const created = await api<Video>("/api/videos", {
         method: "POST",
         body,
       });
+      galleryPrompted.current = true;
       await refresh(undefined, "/gallery");
+      showVideoDetails(created);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar el video");
     } finally {
@@ -844,6 +893,7 @@ export default function App() {
           fileInputRef={fileInputRef}
           onOpenLabel={(item) => void handleOpenLabel(item)}
           onOpenClips={(item) => void handleOpenClips(item)}
+          onEditDetails={showVideoDetails}
           onOpenUpload={() => fileInputRef.current?.click()}
           onFileChange={(file) => void handleInitialFileChange(file)}
           onDeleteVideo={(item) => {
@@ -854,8 +904,12 @@ export default function App() {
           onSync={async () => {
             setIsSyncing(true);
             try {
+              const knownIds = new Set(videoLibrary.map((item) => item.id));
               await api<void>("/api/videos/sync", { method: "POST" });
+              const synced = await api<VideoLibraryItem[]>("/api/videos");
               await refresh(selectedVideoId, route);
+              const newest = synced.find((item) => !knownIds.has(item.id));
+              if (newest) showVideoDetails(newest);
             } catch (err) {
               setError(err instanceof Error ? err.message : "Error al sincronizar");
             } finally {
@@ -864,7 +918,12 @@ export default function App() {
           }}
         />
       ) : route === "/download" ? (
-        <DownloadView />
+        <DownloadView onVideoImported={async (videoId) => {
+          const library = await api<VideoLibraryItem[]>("/api/videos");
+          setVideoLibrary(library);
+          const imported = library.find((item) => item.id === videoId);
+          if (imported) showVideoDetails(imported);
+        }} />
       ) : route === "/label" ? (
         video && (
           <WorkspaceView
@@ -1010,14 +1069,15 @@ export default function App() {
         }}
         onSuggestSecondColor={() => setNewAntagonistSecondColor(suggestSecondColor(tags, newTagColor))}
       />
-      {metadataDraft && video && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Metadatos del vídeo">
-        <form className="tag-modal" onSubmit={(event) => { event.preventDefault(); void saveMetadata(); }}>
-          <h2>Completar metadatos del vídeo</h2>
-          <p>La extracción automática no detectó todos los datos. Indica los que conozcas para usar correctamente los frames y los recortes.</p>
-          {([ ["duration_seconds", "Duración (segundos)"], ["fps", "FPS"], ["width", "Ancho (px)"], ["height", "Alto (px)"] ] as const).map(([key, label]) => <label className="field-block" key={key}>{label}<input type="number" min="0.001" step="any" value={metadataDraft[key]} onChange={(event) => setMetadataDraft((current) => current ? { ...current, [key]: event.target.value } : null)} /></label>)}
-          <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setMetadataDraft(null)}>Ahora no</button><button type="submit">Guardar</button></div>
-        </form>
-      </div>}
+      {metadataDraft && metadataTarget && <VideoDetailsModal
+        video={metadataTarget}
+        draft={metadataDraft}
+        saving={isSavingMetadata}
+        error={metadataError}
+        onChange={setMetadataDraft}
+        onSave={() => void saveMetadata()}
+        onClose={() => { setMetadataDraft(null); setMetadataTarget(null); }}
+      />}
     </main>
   );
 }
