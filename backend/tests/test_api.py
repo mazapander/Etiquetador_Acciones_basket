@@ -1,4 +1,5 @@
 from pathlib import Path
+import time
 
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -327,7 +328,14 @@ def test_clip_export_excludes_antagonistic_segments_and_writes_manifest(tmp_path
         json={"tag_definition_id": excluded_tag["id"], "export_mode": "exclude", "output_label": "jugable"},
     )
     assert response.status_code == 200
-    payload = response.json()
+    task_id = response.json()["task_id"]
+    for _ in range(100):
+        progress = client.get(f"/api/videos/{video['id']}/clip-export/{task_id}").json()
+        if progress["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert progress["status"] == "completed", progress["error"]
+    payload = progress["result"]
     assert payload["segment_count"] == 3
     assert len(export_calls) == 3
     assert Path(payload["manifest_path"]).exists()

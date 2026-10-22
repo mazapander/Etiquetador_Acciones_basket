@@ -1,4 +1,4 @@
-import { RefObject } from "react";
+import { RefObject, useState } from "react";
 
 import { EventsList } from "../components/EventsList";
 import { TagSidebar } from "../components/TagSidebar";
@@ -93,13 +93,18 @@ export function WorkspaceView({
   onReorderTags,
   onFinishProject,
 }: Props) {
+  const [tagsExpanded, setTagsExpanded] = useState(true);
+  const [eventsExpanded, setEventsExpanded] = useState(true);
   return (
     <section className="workspace-view">
       <div className="workspace-toolbar">
         <button className="secondary-button" type="button" onClick={onOpenCreateTag}>
-          Nueva tag
+          + Tag
         </button>
-        <button className="secondary-button" type="button" onClick={onFinishProject}>
+        <label className="jump-control" htmlFor="jump-seconds">Salto ← →
+          <input id="jump-seconds" type="number" min="0.1" step="0.5" value={jumpSeconds} onChange={(event) => onJumpChange(Math.max(0.1, Number(event.target.value) || 0.1))} /> s
+        </label>
+        <button className="secondary-button finish-button" type="button" onClick={onFinishProject}>
           Finalizar proyecto
         </button>
       </div>
@@ -111,10 +116,8 @@ export function WorkspaceView({
           videoError={videoError}
           currentTime={currentTime}
           duration={duration}
-          jumpSeconds={jumpSeconds}
           tagCounts={tagCounts}
           events={events}
-          onJumpChange={onJumpChange}
           onTimeUpdate={onTimeUpdate}
           onDurationChange={onDurationChange}
           onSeek={onSeek}
@@ -122,7 +125,10 @@ export function WorkspaceView({
           onVideoReady={onVideoReady}
           onVideoError={onVideoError}
         />
+        <div className="workspace-side">
         <TagSidebar
+          expanded={tagsExpanded}
+          onToggle={() => setTagsExpanded((value) => !value)}
           tags={tags}
           regularTags={regularTags}
           antagonisticPairs={antagonisticPairs}
@@ -143,8 +149,9 @@ export function WorkspaceView({
           onPairDraftChange={onPairDraftChange}
           onReorderTags={onReorderTags}
         />
+        <EventsList events={events} currentTime={currentTime} expanded={eventsExpanded} onToggle={() => setEventsExpanded((value) => !value)} onSeek={onSeek} onUpdateEvent={onUpdateEvent} onDeleteEvent={onDeleteEvent} />
+        </div>
       </section>
-      <EventsList events={events} onSeek={onSeek} onUpdateEvent={onUpdateEvent} onDeleteEvent={onDeleteEvent} />
     </section>
   );
 }

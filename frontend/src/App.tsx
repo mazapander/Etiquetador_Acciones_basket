@@ -36,6 +36,7 @@ function navigateTo(path: RoutePath, replace = false) {
 
 export default function App() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const metadataPrompted = useRef<Set<number>>(new Set());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [route, setRoute] = useState<RoutePath>(() => normalizeRoute(window.location.pathname));
   const [video, setVideo] = useState<Video | null>(null);
@@ -77,6 +78,9 @@ export default function App() {
   const [isExportingClips, setIsExportingClips] = useState(false);
   const [clipKeepSegments, setClipKeepSegments] = useState(true);
   const [exportProgress, setExportProgress] = useState<{ current: number; total: number; stage: string } | null>(null);
+  const [metadataDraft, setMetadataDraft] = useState<{ duration_seconds: string; fps: string; width: string; height: string } | null>(null);
+  const [previewTaskId, setPreviewTaskId] = useState<number | null>(null);
+  const [isRenderingPreview, setIsRenderingPreview] = useState(false);
 
   const streamUrl = useMemo(() => (video ? `${API_BASE}/api/videos/${video.id}/stream` : ""), [video]);
   const regularTags = tags.filter((tag) => tag.mode !== "antagonistic");
@@ -114,7 +118,46 @@ export default function App() {
 
   useVideoPrefetch(video ? video.id : null);
 
+  useEffect(() => {
+    if (route === "/label" && video && !metadataPrompted.current.has(video.id) && (!video.duration_seconds || !video.fps || !video.width || !video.height)) {
+      metadataPrompted.current.add(video.id);
+      setMetadataDraft({ duration_seconds: String(video.duration_seconds ?? ""), fps: String(video.fps ?? ""), width: String(video.width ?? ""), height: String(video.height ?? "") });
+    } else {
+      setMetadataDraft(null);
+    }
+  }, [route, video?.id, video?.duration_seconds, video?.fps, video?.width, video?.height]);
+
+  async function saveMetadata() {
+    if (!video || !metadataDraft) return;
+    const values = Object.fromEntries(Object.entries(metadataDraft).filter(([, value]) => Number(value) > 0).map(([key, value]) => [key, Number(value)]));
+    try {
+      const updated = await api<Video>(`/api/videos/${video.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(values) });
+      setVideo(updated);
+      setMetadataDraft(null);
+    } catch (err) { setError(err instanceof Error ? err.message : "No se pudieron guardar los metadatos"); }
+  }
+
+  async function discardPreview() {
+    if (video && previewTaskId !== null) await api<void>(`/api/videos/${video.id}/clip-preview/${previewTaskId}`, { method: "DELETE" }).catch(() => undefined);
+    setPreviewTaskId(null);
+  }
+
+  useEffect(() => {
+    if (route !== "/clips" && previewTaskId !== null && !isExportingClips) void discardPreview();
+  }, [route, previewTaskId, isExportingClips]);
+
+  useEffect(() => {
+    if (!video || previewTaskId === null) return;
+    const previewPath = `${API_BASE}/api/videos/${video.id}/clip-preview/${previewTaskId}`;
+    const cleanup = () => { void fetch(previewPath, { method: "DELETE", keepalive: true }); };
+    window.addEventListener("pagehide", cleanup);
+    return () => window.removeEventListener("pagehide", cleanup);
+  }, [video?.id, previewTaskId]);
+
   async function openVideo(nextVideo: Video | null) {
+    if (video && previewTaskId !== null && video.id !== nextVideo?.id) {
+      await api<void>(`/api/videos/${video.id}/clip-preview/${previewTaskId}`, { method: "DELETE" }).catch(() => undefined);
+    }
     setVideo(nextVideo);
     setSelectedVideoId(nextVideo?.id ?? null);
     setDisplayName(nextVideo?.display_name ?? "");
@@ -132,6 +175,7 @@ export default function App() {
     setActiveRanges(buildOpenRanges(currentEvents));
     setClipPlan(null);
     setClipResult(null);
+    setPreviewTaskId(null);
   }
 
   function handleVideoLoadStart() {
@@ -628,6 +672,7 @@ export default function App() {
       });
       setClipPlan(plan);
       setClipResult(null);
+      void discardPreview();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo calcular el plan");
     } finally {
@@ -652,6 +697,8 @@ export default function App() {
           post_roll_seconds: clipPostRoll,
           output_label: clipOutputLabel.trim() || null,
           keep_segments: clipKeepSegments,
+          segment_indices: clipPlan?.segments.map((segment) => segment.index),
+          preview_task_id: previewTaskId,
         }),
       });
 
@@ -665,6 +712,7 @@ export default function App() {
             clearInterval(pollInterval);
             setClipResult(progress.result);
             setClipPlan(progress.result);
+            setPreviewTaskId(null);
             setIsExportingClips(false);
             setExportProgress(null);
           } else if (progress.status === "failed") {
@@ -673,8 +721,11 @@ export default function App() {
             setIsExportingClips(false);
             setExportProgress(null);
           }
-        } catch {
+        } catch (err) {
           clearInterval(pollInterval);
+          setError(err instanceof Error ? err.message : "No se pudo consultar el estado de la exportación");
+          setIsExportingClips(false);
+          setExportProgress(null);
         }
       }, 500);
     } catch (err) {
@@ -682,6 +733,30 @@ export default function App() {
       setIsExportingClips(false);
       setExportProgress(null);
     }
+  }
+
+  async function renderClipPreview() {
+    if (!video || !clipPlan?.segment_count) return;
+    await discardPreview();
+    setIsRenderingPreview(true);
+    setError(null);
+    try {
+      const task = await api<{ task_id: number }>(`/api/videos/${video.id}/clip-export?preview=true`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tag_definition_id: clipTagId, export_mode: clipMode, pre_roll_seconds: clipPreRoll, post_roll_seconds: clipPostRoll, output_label: clipOutputLabel.trim() || null, segment_indices: clipPlan.segments.map((segment) => segment.index) }),
+      });
+      const poll = window.setInterval(async () => {
+        try {
+          const progress = await api<{ status: string; error: string | null }>(`/api/videos/${video.id}/clip-export/${task.task_id}`);
+          if (progress.status === "completed" || progress.status === "failed") {
+            window.clearInterval(poll);
+            setIsRenderingPreview(false);
+            if (progress.status === "completed") setPreviewTaskId(task.task_id);
+            else setError(progress.error || "No se pudo generar la previsualización");
+          }
+        } catch (err) { window.clearInterval(poll); setIsRenderingPreview(false); setError(err instanceof Error ? err.message : "No se pudo consultar la previsualización"); }
+      }, 1000);
+    } catch (err) { setIsRenderingPreview(false); setError(err instanceof Error ? err.message : "No se pudo generar la previsualización"); }
   }
 
   const pageTitle =
@@ -880,17 +955,26 @@ export default function App() {
             result={clipResult}
             isPlanning={isPlanningClips}
             isExporting={isExportingClips}
+            isRenderingPreview={isRenderingPreview}
+            previewUrl={previewTaskId !== null ? `${API_BASE}/api/videos/${video.id}/clip-preview/${previewTaskId}/stream` : null}
+            onRenderPreview={() => void renderClipPreview()}
+            onDiscardPreview={() => void discardPreview()}
+            onRemoveSegment={(index) => {
+              setClipPlan((current) => current ? { ...current, segments: current.segments.filter((segment) => segment.index !== index), segment_count: current.segment_count - 1 } : null);
+              void discardPreview();
+            }}
             onTagChange={(tagId) => {
+              setClipPlan(null); void discardPreview();
               setClipTagId(tagId);
               const tag = tags.find((item) => item.id === tagId);
               if (tag && !clipOutputLabel) {
                 setClipOutputLabel(tag.name);
               }
             }}
-            onModeChange={setClipMode}
-            onPreRollChange={setClipPreRoll}
-            onPostRollChange={setClipPostRoll}
-            onOutputLabelChange={setClipOutputLabel}
+            onModeChange={(value) => { setClipMode(value); setClipPlan(null); void discardPreview(); }}
+            onPreRollChange={(value) => { setClipPreRoll(value); setClipPlan(null); void discardPreview(); }}
+            onPostRollChange={(value) => { setClipPostRoll(value); setClipPlan(null); void discardPreview(); }}
+            onOutputLabelChange={(value) => { setClipOutputLabel(value); setClipPlan(null); void discardPreview(); }}
             onKeepSegmentsChange={setClipKeepSegments}
             onPreview={() => void previewClips()}
             onExport={() => void exportClips()}
@@ -926,6 +1010,14 @@ export default function App() {
         }}
         onSuggestSecondColor={() => setNewAntagonistSecondColor(suggestSecondColor(tags, newTagColor))}
       />
+      {metadataDraft && video && <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="Metadatos del vídeo">
+        <form className="tag-modal" onSubmit={(event) => { event.preventDefault(); void saveMetadata(); }}>
+          <h2>Completar metadatos del vídeo</h2>
+          <p>La extracción automática no detectó todos los datos. Indica los que conozcas para usar correctamente los frames y los recortes.</p>
+          {([ ["duration_seconds", "Duración (segundos)"], ["fps", "FPS"], ["width", "Ancho (px)"], ["height", "Alto (px)"] ] as const).map(([key, label]) => <label className="field-block" key={key}>{label}<input type="number" min="0.001" step="any" value={metadataDraft[key]} onChange={(event) => setMetadataDraft((current) => current ? { ...current, [key]: event.target.value } : null)} /></label>)}
+          <div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setMetadataDraft(null)}>Ahora no</button><button type="submit">Guardar</button></div>
+        </form>
+      </div>}
     </main>
   );
 }

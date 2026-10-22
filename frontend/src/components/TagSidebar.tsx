@@ -3,6 +3,8 @@ import { AntagonisticPair, PairDraft, RegularTagDraft, TagDefinition, TagEvent }
 import { suggestAvailableColor, suggestSecondColor } from "../lib/video";
 
 type Props = {
+  expanded: boolean;
+  onToggle: () => void;
   tags: TagDefinition[];
   regularTags: TagDefinition[];
   antagonisticPairs: AntagonisticPair[];
@@ -25,6 +27,8 @@ type Props = {
 };
 
 export function TagSidebar({
+  expanded,
+  onToggle,
   tags,
   regularTags,
   antagonisticPairs,
@@ -93,8 +97,10 @@ export function TagSidebar({
   return (
     <aside className="tag-panel">
       <div className="section-heading">
-        <h2>Tags</h2>
+        <h2>Tags <small>{regularTags.length + antagonisticPairs.length}</small></h2>
+        <button type="button" className="panel-toggle" aria-expanded={expanded} onClick={onToggle}>{expanded ? "Minimizar" : "Expandir"}</button>
       </div>
+      {expanded && (
       <div className="tag-list">
         {regularTags.map((tag) => {
           const openEvent = activeRanges[tag.id];
@@ -239,6 +245,7 @@ export function TagSidebar({
           );
         })}
       </div>
+      )}
     </aside>
   );
 }

@@ -1,4 +1,4 @@
-import { RefObject } from "react";
+import { RefObject, useState } from "react";
 
 import { TagEvent, Video } from "../types";
 import { formatTime, toPercent } from "../lib/video";
@@ -17,10 +17,8 @@ type Props = {
   videoError: string | null;
   currentTime: number;
   duration: number;
-  jumpSeconds: number;
   tagCounts: TagCount[];
   events: TagEvent[];
-  onJumpChange: (value: number) => void;
   onTimeUpdate: (value: number) => void;
   onDurationChange: (value: number) => void;
   onSeek: (seconds: number) => void;
@@ -36,10 +34,8 @@ export function VideoPlayerPanel({
   videoError,
   currentTime,
   duration,
-  jumpSeconds,
   tagCounts,
   events,
-  onJumpChange,
   onTimeUpdate,
   onDurationChange,
   onSeek,
@@ -48,21 +44,15 @@ export function VideoPlayerPanel({
   onVideoError,
 }: Props) {
   const timelineDuration = duration || video.duration_seconds || 0;
+  const [zoom, setZoom] = useState(1);
+  const [windowStart, setWindowStart] = useState(0);
+  const windowLength = timelineDuration / zoom;
+  const start = Math.min(windowStart, Math.max(0, timelineDuration - windowLength));
+  const visible = events.filter((item) => item.start_seconds <= start + windowLength && (item.end_seconds ?? item.start_seconds) >= start);
+  const percent = (seconds: number) => toPercent(seconds - start, windowLength);
 
   return (
     <div className="video-column">
-      <div className="player-settings">
-        <label htmlFor="jump-seconds">Salto teclas (s)</label>
-        <input
-          id="jump-seconds"
-          type="number"
-          min="0.1"
-          step="0.5"
-          value={jumpSeconds}
-          onChange={(event) => onJumpChange(Math.max(0.1, Number(event.target.value) || 0.1))}
-        />
-        <span>Izquierda/Derecha: -/+ {jumpSeconds}s</span>
-      </div>
       <div className="video-shell">
         <video
           key={video.id}
@@ -99,13 +89,19 @@ export function VideoPlayerPanel({
           </span>
         ))}
       </div>
-      <div className="annotation-track" aria-label="Linea de anotaciones">
+      <div className="timeline-controls">
+        <label>Detalle <input type="range" min="1" max="24" step="1" value={zoom} onChange={(event) => { setZoom(Number(event.target.value)); setWindowStart(Math.max(0, currentTime - timelineDuration / Number(event.target.value) / 2)); }} /> {zoom}×</label>
+        <button type="button" onClick={() => setWindowStart(Math.max(0, currentTime - windowLength / 2))}>Centrar reproducción</button>
+        <span>{formatTime(start)} – {formatTime(start + windowLength)}</span>
+      </div>
+      {zoom > 1 && <input className="timeline-pan" type="range" min="0" max={Math.max(0, timelineDuration - windowLength)} step="1" value={start} aria-label="Desplazar línea de acciones" onChange={(event) => setWindowStart(Number(event.target.value))} />}
+      <div className="annotation-track" aria-label="Linea de anotaciones" onClick={(event) => { if (event.target === event.currentTarget && windowLength > 0) onSeek(start + event.nativeEvent.offsetX / event.currentTarget.clientWidth * windowLength); }}>
         <div className="annotation-track-base" />
-        {events.map((item) => {
-          const left = toPercent(item.start_seconds, timelineDuration);
+        {visible.map((item) => {
+          const left = Math.max(0, percent(item.start_seconds));
           if (item.tag.mode === "range" || item.tag.mode === "antagonistic") {
             const endSeconds = item.end_seconds ?? currentTime;
-            const width = Math.max(0.6, toPercent(endSeconds, timelineDuration) - left);
+            const width = Math.max(0.6, Math.min(100 - left, percent(endSeconds) - left));
             return (
               <button
                 key={item.id}
@@ -128,8 +124,9 @@ export function VideoPlayerPanel({
             />
           );
         })}
-        <div className="playhead-marker" style={{ left: `${toPercent(currentTime, timelineDuration)}%` }} />
+        {currentTime >= start && currentTime <= start + windowLength && <div className="playhead-marker" style={{ left: `${percent(currentTime)}%` }} />}
       </div>
+      <div className="timeline-ruler"><span>{formatTime(start)}</span><span>{formatTime(start + windowLength / 4)}</span><span>{formatTime(start + windowLength / 2)}</span><span>{formatTime(start + windowLength * 3 / 4)}</span><span>{formatTime(start + windowLength)}</span></div>
     </div>
   );
 }

@@ -142,7 +142,9 @@ def export_segment(source_path: Path, output_path: Path, ffmpeg_path: Path, segm
         "18",
         str(output_path),
     ]
-    subprocess.run(command, check=True, capture_output=True, text=True)
+    result = subprocess.run(command, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(f"FFmpeg no pudo generar el clip {segment.index}: {result.stderr[-1200:].strip()}")
 import subprocess
 from pathlib import Path
 
@@ -209,6 +211,7 @@ def concatenate_segments(
         cwd=str(working_dir)
     )
 
+    copy_error = result.stderr
     if result.returncode == 0 and output_path.exists() and output_path.stat().st_size > 0:
         return
 
@@ -245,10 +248,9 @@ def concatenate_segments(
 
     if result.returncode != 0:
         raise RuntimeError(
-            "FFmpeg concat failed.\n\n"
-            f"Concat file:\n{concat_file}\n\n"
-            f"Concat content:\n{concat_content}\n\n"
-            f"Command copy stderr:\n{result.stderr}"
+            "FFmpeg no pudo concatenar los clips. "
+            f"Copia: {copy_error[-600:].strip()} | "
+            f"Recodificación: {result.stderr[-1200:].strip()}"
         )
 
     if not output_path.exists() or output_path.stat().st_size == 0:

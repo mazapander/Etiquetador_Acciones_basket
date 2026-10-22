@@ -1,4 +1,7 @@
 import mimetypes
+import shutil
+import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -53,6 +56,7 @@ from app.video_probe import get_video_tech_info, probe_video_metadata
 settings = get_settings()
 
 clip_export_tasks: dict[int, dict] = {}
+clip_previews: dict[int, Path] = {}
 DEFAULT_TAG_COLORS = [
     "#2563eb",
     "#16a34a",
@@ -87,6 +91,16 @@ def init_db() -> None:
 @app.on_event("startup")
 def on_startup() -> None:
     init_db()
+    for path in Path(tempfile.gettempdir()).glob("clip-preview-*"):
+        if path.is_dir() and time.time() - path.stat().st_mtime > 86400:
+            shutil.rmtree(path, ignore_errors=True)
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    for path in clip_previews.values():
+        shutil.rmtree(path.parent, ignore_errors=True)
+    clip_previews.clear()
 
 
 def get_active_video(db: Session) -> Video | None:
@@ -152,6 +166,12 @@ def sync_library_videos(db: Session) -> None:
             continue
         resolved = path.resolve()
         if resolved in known_paths:
+            existing = known_paths[resolved]
+            if any(getattr(existing, field) is None for field in ("duration_seconds", "fps", "width", "height")):
+                metadata = probe_video_metadata(resolved, settings.ffprobe_path)
+                for field in ("duration_seconds", "fps", "width", "height"):
+                    if getattr(existing, field) is None and metadata[field] is not None:
+                        setattr(existing, field, metadata[field])
             continue
         metadata = probe_video_metadata(resolved, settings.ffprobe_path)
         db.add(
@@ -208,6 +228,9 @@ def build_clip_plan(video: Video, tag: TagDefinition, events: list[TagEvent], pa
             pre_roll_seconds=payload.pre_roll_seconds,
             post_roll_seconds=payload.post_roll_seconds,
         )
+    if payload.segment_indices is not None:
+        selected = set(payload.segment_indices)
+        segments = [segment for segment in segments if segment.index in selected]
     output_label = payload.output_label or tag.name
     return ClipExportPlanRead(
         video_id=video.id,
@@ -373,6 +396,10 @@ def update_video(video_id: int, payload: VideoUpdate, db: Session = Depends(get_
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found")
     if payload.display_name is not None:
         video.display_name = payload.display_name
+    for field in ("duration_seconds", "fps", "width", "height"):
+        value = getattr(payload, field)
+        if value is not None:
+            setattr(video, field, value)
     if payload.status is not None:
         if payload.status == VideoStatus.active:
             return set_active_video(db, video)
@@ -616,7 +643,9 @@ def preview_clip_plan(video_id: int, payload: ClipExportRequest, db: Session = D
 
 
 @app.post("/api/videos/{video_id}/clip-export")
-def export_clips(video_id: int, payload: ClipExportRequest, db: Session = Depends(get_db)):
+def export_clips(video_id: int, payload: ClipExportRequest, preview: bool = False, db: Session = Depends(get_db)):
+    if not settings.ffmpeg_path.is_file():
+        raise HTTPException(status_code=503, detail=f"FFmpeg no está disponible: {settings.ffmpeg_path}")
     video = ensure_video_exists(db, video_id)
     tag = ensure_tag_exists(db, payload.tag_definition_id)
     source_path = resolve_video_path(video)
@@ -628,8 +657,9 @@ def export_clips(video_id: int, payload: ClipExportRequest, db: Session = Depend
     if plan.segment_count == 0:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="No exportable segments found for this tag")
 
-    task_id = video_id * 10000 + len(clip_export_tasks)
+    task_id = uuid4().int & 0x7FFFFFFF
     clip_export_tasks[task_id] = {
+        "video_id": video_id,
         "status": "running",
         "current": 0,
         "total": plan.segment_count,
@@ -639,13 +669,19 @@ def export_clips(video_id: int, payload: ClipExportRequest, db: Session = Depend
     }
 
     def run_export():
+        export_root = None
         try:
-            export_root = settings.clip_exports_dir / slugify(video.display_name) / f"{slugify(plan.output_label)}-{payload.export_mode}"
+            export_root = (Path(tempfile.mkdtemp(prefix=f"clip-preview-{video_id}-")) if preview
+                           else settings.clip_exports_dir / slugify(video.display_name) / f"{slugify(plan.output_label)}-{payload.export_mode}-{uuid4().hex[:8]}")
             export_root.mkdir(parents=True, exist_ok=True)
 
             output_files: list[str] = []
             segment_paths: list[Path] = []
-            for i, segment in enumerate(plan.segments):
+            preview_source = clip_previews.get(payload.preview_task_id) if payload.preview_task_id is not None and not preview else None
+            preview_task = clip_export_tasks.get(payload.preview_task_id) if payload.preview_task_id is not None else None
+            if preview_source and (not preview_source.exists() or not preview_task or preview_task.get("video_id") != video_id or preview_task.get("plan") != plan.model_dump()):
+                preview_source = None
+            for i, segment in enumerate(plan.segments if preview or payload.export_mode != "concatenate" or payload.keep_segments or not preview_source else []):
                 clip_export_tasks[task_id]["stage"] = f"Exportando clip {i + 1}/{plan.segment_count}"
                 clip_export_tasks[task_id]["current"] = i + 1
                 filename = f"{segment.index:03d}_{slugify(segment.label)}_{segment.start_seconds:.3f}_{segment.end_seconds:.3f}.mp4"
@@ -667,15 +703,28 @@ def export_clips(video_id: int, payload: ClipExportRequest, db: Session = Depend
                 output_files.append(str(output_path))
                 segment_paths.append(output_path)
 
-            if payload.export_mode == "concatenate" and segment_paths:
+            if (payload.export_mode == "concatenate" or preview) and segment_paths and (preview or not preview_source):
                 clip_export_tasks[task_id]["stage"] = "Concatenando clips..."
                 clip_export_tasks[task_id]["current"] = plan.segment_count
                 concat_output = export_root / f"{slugify(plan.output_label)}_concat.mp4"
                 concatenate_segments(segment_paths, concat_output, settings.ffmpeg_path, export_root)
                 output_files.append(str(concat_output))
+                if preview or not payload.keep_segments:
+                    for segment_path in segment_paths:
+                        segment_path.unlink(missing_ok=True)
+                    output_files = [str(concat_output)]
+            elif payload.export_mode == "concatenate" and preview_source:
+                concat_output = export_root / f"{slugify(plan.output_label)}_concat.mp4"
+                shutil.copy2(preview_source, concat_output)
+                output_files.append(str(concat_output))
+            if payload.export_mode == "concatenate" and preview_source and segment_paths:
+                concat_output = export_root / f"{slugify(plan.output_label)}_concat.mp4"
+                shutil.copy2(preview_source, concat_output)
+                output_files.append(str(concat_output))
                 if not payload.keep_segments:
                     for segment_path in segment_paths:
                         segment_path.unlink(missing_ok=True)
+                    output_files = [str(concat_output)]
 
             manifest_path = write_manifest(
                 export_root,
@@ -698,12 +747,21 @@ def export_clips(video_id: int, payload: ClipExportRequest, db: Session = Depend
                 manifest_path=str(manifest_path),
                 output_files=output_files,
             )
-            clip_export_tasks[task_id]["status"] = "completed"
-            clip_export_tasks[task_id]["stage"] = "Completado"
+            if preview:
+                clip_previews[task_id] = concat_output
+                clip_export_tasks[task_id]["plan"] = plan.model_dump()
+            elif preview_source and payload.preview_task_id is not None:
+                clip_previews.pop(payload.preview_task_id, None)
+                shutil.rmtree(preview_source.parent, ignore_errors=True)
+                clip_export_tasks.pop(payload.preview_task_id, None)
             clip_export_tasks[task_id]["result"] = result.model_dump()
+            clip_export_tasks[task_id]["stage"] = "Completado"
+            clip_export_tasks[task_id]["status"] = "completed"
         except Exception as exc:
             clip_export_tasks[task_id]["status"] = "failed"
             clip_export_tasks[task_id]["error"] = str(exc)
+            if preview and export_root is not None:
+                shutil.rmtree(export_root, ignore_errors=True)
 
     import threading
     thread = threading.Thread(target=run_export)
@@ -712,9 +770,30 @@ def export_clips(video_id: int, payload: ClipExportRequest, db: Session = Depend
     return {"task_id": task_id, "status": "started"}
 
 
+@app.get("/api/videos/{video_id}/clip-preview/{task_id}/stream")
+def stream_clip_preview(video_id: int, task_id: int):
+    path = clip_previews.get(task_id)
+    task = clip_export_tasks.get(task_id)
+    if not path or not path.exists() or not task or task.get("video_id") != video_id:
+        raise HTTPException(status_code=404, detail="Preview not found")
+    return FileResponse(path, media_type="video/mp4", headers={"Accept-Ranges": "bytes", "Cache-Control": "no-store"})
+
+
+@app.delete("/api/videos/{video_id}/clip-preview/{task_id}", status_code=204)
+def delete_clip_preview(video_id: int, task_id: int):
+    task = clip_export_tasks.get(task_id)
+    if task and task.get("video_id") == video_id:
+        path = clip_previews.pop(task_id, None)
+    else:
+        path = None
+    if path:
+        shutil.rmtree(path.parent, ignore_errors=True)
+        clip_export_tasks.pop(task_id, None)
+
+
 @app.get("/api/videos/{video_id}/clip-export/{task_id}")
 def get_clip_export_progress(video_id: int, task_id: int):
-    if task_id not in clip_export_tasks:
+    if task_id not in clip_export_tasks or clip_export_tasks[task_id].get("video_id") != video_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
     return clip_export_tasks[task_id]
 

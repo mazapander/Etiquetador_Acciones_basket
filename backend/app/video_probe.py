@@ -6,14 +6,15 @@ from pathlib import Path
 def _parse_fraction(value: str | None) -> float | None:
     if not value:
         return None
-    if "/" in value:
-        numerator_text, denominator_text = value.split("/", maxsplit=1)
-        numerator = float(numerator_text)
-        denominator = float(denominator_text)
-        if denominator == 0:
-            return None
-        return numerator / denominator
-    return float(value)
+    try:
+        if "/" in value:
+            numerator_text, denominator_text = value.split("/", maxsplit=1)
+            numerator = float(numerator_text)
+            denominator = float(denominator_text)
+            return numerator / denominator if denominator else None
+        return float(value)
+    except ValueError:
+        return None
 
 
 def probe_video_metadata(path: Path, ffprobe_path: Path) -> dict[str, float | int | str | None]:
@@ -36,7 +37,10 @@ def probe_video_metadata(path: Path, ffprobe_path: Path) -> dict[str, float | in
     except (FileNotFoundError, subprocess.CalledProcessError):
         return {"duration_seconds": None, "fps": None, "width": None, "height": None}
 
-    payload = json.loads(result.stdout)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {"duration_seconds": None, "fps": None, "width": None, "height": None}
     format_info = payload.get("format", {})
     streams = payload.get("streams", [])
     stream = streams[0] if streams else {}
@@ -45,7 +49,7 @@ def probe_video_metadata(path: Path, ffprobe_path: Path) -> dict[str, float | in
     fps = _parse_fraction(stream.get("avg_frame_rate")) or _parse_fraction(stream.get("r_frame_rate"))
 
     return {
-        "duration_seconds": float(duration) if duration is not None else None,
+        "duration_seconds": _parse_fraction(duration),
         "format_name": format_info.get("format_name"),
         "format_long_name": format_info.get("format_long_name"),
         "fps": fps,
@@ -80,7 +84,10 @@ def get_video_tech_info(path: Path, ffprobe_path: Path) -> dict:
     except (FileNotFoundError, subprocess.CalledProcessError):
         return {}
 
-    payload = json.loads(result.stdout)
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
     format_info = payload.get("format", {})
     streams = payload.get("streams", [])
     stream = streams[0] if streams else {}
@@ -104,7 +111,7 @@ def get_video_tech_info(path: Path, ffprobe_path: Path) -> dict:
         "bitrate": _format_bitrate(int(format_info["bit_rate"])) if format_info.get("bit_rate") else None,
         "bitrate_raw": int(format_info["bit_rate"]) if format_info.get("bit_rate") else None,
         "max_bitrate": _format_bitrate(int(format_info["max_bit_rate"])) if format_info.get("max_bit_rate") else None,
-        "duration": float(duration) if duration else None,
+        "duration": _parse_fraction(duration),
         "size_bytes": size_bytes,
         "size_formatted": _format_size(size_bytes) if size_bytes else None,
         "wrapper": format_info.get("format_long_name") or format_info.get("format_name"),

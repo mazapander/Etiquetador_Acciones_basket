@@ -15,6 +15,11 @@ type Props = {
   result: ClipExportResult | null;
   isPlanning: boolean;
   isExporting: boolean;
+  isRenderingPreview: boolean;
+  previewUrl: string | null;
+  onRenderPreview: () => void;
+  onDiscardPreview: () => void;
+  onRemoveSegment: (index: number) => void;
   onTagChange: (tagId: number) => void;
   onModeChange: (mode: ClipExportMode) => void;
   onPreRollChange: (value: number) => void;
@@ -45,6 +50,11 @@ export function ClipsView({
   result,
   isPlanning,
   isExporting,
+  isRenderingPreview,
+  previewUrl,
+  onRenderPreview,
+  onDiscardPreview,
+  onRemoveSegment,
   onTagChange,
   onModeChange,
   onPreRollChange,
@@ -137,7 +147,11 @@ export function ClipsView({
             <button type="button" onClick={onExport} disabled={!plan || plan.segment_count === 0 || isExporting}>
               {isExporting ? "Exportando..." : "Exportar clips"}
             </button>
+            <button className="secondary-button" type="button" onClick={onRenderPreview} disabled={!plan?.segment_count || isRenderingPreview || isExporting}>
+              {isRenderingPreview ? "Generando vídeo..." : "Generar vídeo temporal"}
+            </button>
           </div>
+          {previewUrl && <div className="clip-preview"><video key={previewUrl} src={previewUrl} controls preload="metadata" /><button type="button" className="secondary-button" onClick={onDiscardPreview}>Descartar vídeo temporal</button></div>}
         </div>
 
         <div className="clips-results-panel">
@@ -160,6 +174,7 @@ export function ClipsView({
                     <span>{formatTime(segment.start_seconds)} - {formatTime(segment.end_seconds)}</span>
                     <span>{segment.duration_seconds.toFixed(2)}s</span>
                     <span>F {segment.start_frame ?? "-"} / {segment.end_frame ?? "-"}</span>
+                    <button type="button" className="clip-remove" title="Quitar del plan" aria-label={`Quitar clip ${segment.index} del plan`} onClick={() => onRemoveSegment(segment.index)}>×</button>
                   </div>
                 ))}
               </div>

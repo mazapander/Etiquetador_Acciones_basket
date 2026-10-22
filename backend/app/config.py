@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from shutil import which
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -21,4 +22,11 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    for field, executable in (("ffmpeg_path", "ffmpeg"), ("ffprobe_path", "ffprobe")):
+        configured = getattr(settings, field)
+        if not configured.is_file():
+            installed = which(executable)
+            if installed:
+                setattr(settings, field, Path(installed))
+    return settings

@@ -104,6 +104,10 @@ class VideoLibraryItemRead(VideoRead):
 class VideoUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
     status: VideoStatus | None = None
+    duration_seconds: float | None = Field(default=None, gt=0)
+    fps: float | None = Field(default=None, gt=0)
+    width: int | None = Field(default=None, gt=0)
+    height: int | None = Field(default=None, gt=0)
 
 
 class VideoTechInfo(BaseModel):
@@ -135,6 +139,8 @@ class ClipExportRequest(BaseModel):
     post_roll_seconds: float = Field(default=0, ge=0)
     output_label: str | None = Field(default=None, min_length=1, max_length=120)
     keep_segments: bool = Field(default=True)
+    segment_indices: list[int] | None = None
+    preview_task_id: int | None = None
 
 
 class ClipSegmentRead(BaseModel):
