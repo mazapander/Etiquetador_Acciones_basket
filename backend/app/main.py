@@ -1,5 +1,6 @@
 import mimetypes
 import logging
+import colorsys
 import shutil
 import tempfile
 import threading
@@ -330,6 +331,30 @@ def assert_color_available(
         )
 
 
+def assign_activation_colors(db: Session, tags: list[TagDefinition]) -> None:
+    """Keep visible tag colors distinct when archived tags are activated again."""
+    activating_ids = {tag.id for tag in tags}
+    used = {
+        tag.color.lower()
+        for tag in db.scalars(select(TagDefinition).where(TagDefinition.is_active.is_(True))).all()
+        if tag.id not in activating_ids
+    }
+    for tag in tags:
+        if tag.color.lower() in used:
+            replacement = next((color for color in DEFAULT_TAG_COLORS if color.lower() not in used), None)
+            if replacement is None:
+                for hue in range(360):
+                    red, green, blue = colorsys.hsv_to_rgb(hue / 360, 0.72, 0.86)
+                    candidate = f"#{round(red * 255):02x}{round(green * 255):02x}{round(blue * 255):02x}"
+                    if candidate not in used:
+                        replacement = candidate
+                        break
+            if replacement is None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No available tag color")
+            tag.color = replacement
+        used.add(tag.color.lower())
+
+
 def close_open_antagonistic_events(
     db: Session,
     video_id: int,
@@ -623,6 +648,11 @@ def update_antagonistic_pair(group_key: str, payload: AntagonisticPairUpdate, db
         tags[0].name = payload.first_name
     if payload.second_name is not None:
         tags[1].name = payload.second_name
+    if payload.is_active is not None:
+        if payload.is_active:
+            assign_activation_colors(db, tags)
+        for tag in tags:
+            tag.is_active = payload.is_active
     try:
         db.commit()
     except IntegrityError as exc:
@@ -642,7 +672,9 @@ def update_tag(tag_id: int, payload: TagDefinitionUpdate, db: Session = Depends(
         if key == "shortcut_key":
             value = normalize_shortcut_key(value)
         setattr(tag, key, value)
-    if payload.color is not None:
+    if payload.is_active is True:
+        assign_activation_colors(db, [tag])
+    if payload.color is not None or payload.is_active is True:
         assert_color_available(db, tag.color, excluded_tag_ids={tag.id}, group_key=tag.group_key)
     if tag.mode == TagMode.antagonistic and not tag.group_key:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="group_key is required for antagonistic tags")

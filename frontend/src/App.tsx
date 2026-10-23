@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { CreateTagModal } from "./components/CreateTagModal";
+import { ManageTagsModal } from "./components/ManageTagsModal";
 import { VideoInfoButton } from "./components/VideoInfoButton";
 import { makeVideoDetailsDraft, VideoDetailsDraft, VideoDetailsModal } from "./components/VideoDetailsModal";
 import { api, API_BASE } from "./lib/api";
@@ -45,6 +46,11 @@ export default function App() {
   const [videoLibrary, setVideoLibrary] = useState<VideoLibraryItem[]>([]);
   const [selectedVideoId, setSelectedVideoId] = useState<number | null>(null);
   const [tags, setTags] = useState<TagDefinition[]>([]);
+  const [allTags, setAllTags] = useState<TagDefinition[]>([]);
+  const [isManageTagsOpen, setIsManageTagsOpen] = useState(false);
+  const [isLoadingAllTags, setIsLoadingAllTags] = useState(false);
+  const [pendingTagKey, setPendingTagKey] = useState<string | null>(null);
+  const [tagManagerError, setTagManagerError] = useState<string | null>(null);
   const [events, setEvents] = useState<TagEvent[]>([]);
   const [activeRanges, setActiveRanges] = useState<Record<number, TagEvent>>({});
   const [currentTime, setCurrentTime] = useState(0);
@@ -319,7 +325,7 @@ export default function App() {
         return;
       }
       const element = videoRef.current;
-      if (!element || route !== "/label") {
+      if (!element || route !== "/label" || isManageTagsOpen || isCreateModalOpen) {
         return;
       }
       event.preventDefault();
@@ -329,7 +335,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler, true);
     return () => window.removeEventListener("keydown", handler, true);
-  }, [jumpSeconds, route]);
+  }, [jumpSeconds, route, isManageTagsOpen, isCreateModalOpen]);
 
   useEffect(() => {
     window.localStorage.setItem("video-jump-seconds", String(jumpSeconds));
@@ -370,7 +376,7 @@ export default function App() {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if (route !== "/label") {
+      if (route !== "/label" || isManageTagsOpen || isCreateModalOpen) {
         return;
       }
       const target = event.target as HTMLElement | null;
@@ -395,7 +401,7 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [antagonisticPairs, regularTags, route, activeRanges, video, currentTime]);
+  }, [antagonisticPairs, regularTags, route, activeRanges, video, currentTime, isManageTagsOpen, isCreateModalOpen]);
 
   async function uploadSelectedFile(file: File) {
     setIsUploading(true);
@@ -570,6 +576,51 @@ export default function App() {
     }
     await Promise.all(pair.tags.map((tag) => api<TagDefinition>(`/api/tags/${tag.id}`, { method: "DELETE" })));
     await refresh(selectedVideoId, route);
+  }
+
+  async function openManageTags() {
+    setIsManageTagsOpen(true);
+    setIsLoadingAllTags(true);
+    setTagManagerError(null);
+    setAllTags([]);
+    try {
+      setAllTags(await api<TagDefinition[]>("/api/tags?include_inactive=true"));
+    } catch (err) {
+      setTagManagerError(err instanceof Error ? err.message : "No se pudieron cargar las etiquetas");
+    } finally {
+      setIsLoadingAllTags(false);
+    }
+  }
+
+  async function toggleManagedTags(group: { key: string; tags: TagDefinition[] }, active: boolean) {
+    setPendingTagKey(group.key);
+    setTagManagerError(null);
+    try {
+      let changed: TagDefinition[];
+      if (group.tags[0].mode === "antagonistic" && group.tags[0].group_key) {
+        const result = await api<{ tags: TagDefinition[] }>(`/api/antagonistic-pairs/${group.tags[0].group_key}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_active: active }),
+        });
+        changed = result.tags;
+      } else {
+        const result = await api<TagDefinition>(`/api/tags/${group.tags[0].id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_active: active }),
+        });
+        changed = [result];
+      }
+      const replacements = new Map(changed.map((tag) => [tag.id, tag]));
+      const updated = allTags.map((tag) => replacements.get(tag.id) ?? tag);
+      setAllTags(updated);
+      setTags(updated.filter((tag) => tag.is_active));
+    } catch (err) {
+      setTagManagerError(err instanceof Error ? err.message : "No se pudo cambiar la etiqueta");
+    } finally {
+      setPendingTagKey(null);
+    }
   }
 
   async function registerTag(tag: TagDefinition) {
@@ -945,6 +996,7 @@ export default function App() {
             tagDraft={tagDraft}
             pairDraft={pairDraft}
             onOpenCreateTag={() => setIsCreateModalOpen(true)}
+            onOpenManageTags={() => void openManageTags()}
             onJumpChange={setJumpSeconds}
             onTimeUpdate={setCurrentTime}
             onDurationChange={setDuration}
@@ -1041,6 +1093,15 @@ export default function App() {
         )
       )}
 
+      {isManageTagsOpen && <ManageTagsModal
+        tags={allTags}
+        loading={isLoadingAllTags}
+        pendingKey={pendingTagKey}
+        error={tagManagerError}
+        onClose={() => setIsManageTagsOpen(false)}
+        onCreate={() => { setIsManageTagsOpen(false); setIsCreateModalOpen(true); }}
+        onToggle={(group, active) => void toggleManagedTags(group, active)}
+      />}
       <CreateTagModal
         isOpen={isCreateModalOpen}
         newTagMode={newTagMode}

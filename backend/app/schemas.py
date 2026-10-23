@@ -61,6 +61,7 @@ class AntagonisticPairUpdate(BaseModel):
     first_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     second_color: str | None = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
     shortcut_key: str | None = Field(default=None, min_length=1, max_length=20)
+    is_active: bool | None = None
 
     @model_validator(mode="after")
     def validate_distinct_colors(self):

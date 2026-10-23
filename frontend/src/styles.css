@@ -1829,3 +1829,34 @@ h2 {
   .gallery-status-filter { width: 140px; }
   .projects-view .hero-actions { flex-wrap: wrap; }
 }
+
+/* Catálogo de etiquetas reutilizables. */
+.modal-backdrop:has(.manage-tags-modal) { z-index: 100; }
+.manage-tags-modal { width: min(720px, 100%); height: min(84dvh, 720px); min-height: 0; grid-template-rows: auto auto auto minmax(0, 1fr) auto; }
+.manage-tags-modal h2 { margin: 0; font-size: 20px; }
+.manage-tags-modal .modal-header p { margin: 4px 0 0; color: var(--text-soft); font-size: 12px; }
+.manage-tags-filters { display: grid; grid-template-columns: minmax(0, 1fr) 160px; gap: 8px; }
+.manage-tags-filters input, .manage-tags-filters select { width: 100%; min-width: 0; min-height: 38px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-strong); color: var(--text); }
+.manage-tags-list { grid-row: 4; min-height: 0; overflow: auto; display: grid; align-content: start; gap: 6px; padding-right: 3px; }
+.manage-tag-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in srgb, var(--surface-strong) 90%, var(--primary-soft) 10%); }
+.manage-tag-color { width: 12px; height: 30px; flex: none; border-radius: 999px; }
+.manage-tag-description { min-width: 0; flex: 1; display: grid; gap: 3px; }
+.manage-tag-description strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.manage-tag-description small { color: var(--text-soft); font-size: 11px; }
+.manage-tag-toggle { min-width: 92px; min-height: 32px; flex: none; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-strong); color: var(--text-soft); font-size: 11px; font-weight: 700; }
+.manage-tag-toggle.active { border-color: var(--primary); background: var(--primary); color: #fff; }
+.manage-tag-toggle:disabled { opacity: .6; cursor: wait; }
+.manage-tags-footer { grid-row: 5; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.manage-tags-footer span { color: var(--text-soft); font-size: 11px; }
+.manage-tags-footer button { min-height: 34px; flex: none; box-shadow: none; }
+.manage-tags-empty { margin: 0; padding: 28px 10px; color: var(--text-soft); text-align: center; }
+.manage-tags-error { grid-row: 3; margin: 0; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--surface-strong) 84%, var(--danger) 16%); color: var(--danger); font-size: 12px; }
+
+@media (max-width: 600px) {
+  .manage-tags-filters { grid-template-columns: 1fr; }
+  .manage-tags-footer { align-items: stretch; flex-direction: column; }
+}
+
+@media (max-width: 1000px) {
+  .workspace-toolbar { flex-wrap: wrap; }
+}

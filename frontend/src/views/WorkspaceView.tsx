@@ -31,6 +31,7 @@ type Props = {
   tagDraft: RegularTagDraft | null;
   pairDraft: PairDraft | null;
   onOpenCreateTag: () => void;
+  onOpenManageTags: () => void;
   onJumpChange: (value: number) => void;
   onTimeUpdate: (value: number) => void;
   onDurationChange: (value: number) => void;
@@ -72,6 +73,7 @@ export function WorkspaceView({
   tagDraft,
   pairDraft,
   onOpenCreateTag,
+  onOpenManageTags,
   onJumpChange,
   onTimeUpdate,
   onDurationChange,
@@ -98,6 +100,9 @@ export function WorkspaceView({
   return (
     <section className="workspace-view">
       <div className="workspace-toolbar">
+        <button className="secondary-button" type="button" onClick={onOpenManageTags}>
+          Gestionar tags
+        </button>
         <button className="secondary-button" type="button" onClick={onOpenCreateTag}>
           + Tag
         </button>

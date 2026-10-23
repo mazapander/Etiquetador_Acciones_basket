@@ -54,6 +54,46 @@ def test_tag_lifecycle(tmp_path, monkeypatch):
     assert delete_response.json()["is_active"] is False
     assert client.get("/api/tags").json() == []
 
+    all_tags = client.get("/api/tags?include_inactive=true").json()
+    assert len(all_tags) == 1
+    assert all_tags[0]["id"] == tag_id
+    reactivated = client.patch(f"/api/tags/{tag_id}", json={"is_active": True})
+    assert reactivated.status_code == 200
+    assert reactivated.json()["is_active"] is True
+    assert len(client.get("/api/tags").json()) == 1
+
+
+def test_antagonistic_pair_activation_updates_both_tags(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    created = client.post("/api/antagonistic-pairs", json={
+        "first_name": "Ataque", "second_name": "Defensa",
+        "first_color": "#2563eb", "second_color": "#16a34a",
+    })
+    assert created.status_code == 201
+    group_key = created.json()["group_key"]
+
+    disabled = client.patch(f"/api/antagonistic-pairs/{group_key}", json={"is_active": False})
+    assert disabled.status_code == 200
+    assert all(not tag["is_active"] for tag in disabled.json()["tags"])
+    assert client.get("/api/tags").json() == []
+
+    enabled = client.patch(f"/api/antagonistic-pairs/{group_key}", json={"is_active": True})
+    assert enabled.status_code == 200
+    assert all(tag["is_active"] for tag in enabled.json()["tags"])
+    assert len(client.get("/api/tags").json()) == 2
+
+
+def test_reactivating_tag_reassigns_reused_color(tmp_path, monkeypatch):
+    client = make_client(tmp_path, monkeypatch)
+    first = client.post("/api/tags", json={"name": "Gol", "color": "#16a34a"}).json()
+    assert client.delete(f"/api/tags/{first['id']}").status_code == 200
+    second = client.post("/api/tags", json={"name": "Tiro", "color": "#16a34a"}).json()
+
+    response = client.patch(f"/api/tags/{first['id']}", json={"is_active": True})
+    assert response.status_code == 200
+    assert response.json()["color"] != second["color"]
+    assert len(client.get("/api/tags").json()) == 2
+
 
 def test_duplicate_color_returns_suggested_color(tmp_path, monkeypatch):
     client = make_client(tmp_path, monkeypatch)
